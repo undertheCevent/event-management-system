@@ -153,20 +153,66 @@ builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo
     {
-        Title = "Event Management API",
+        Title   = "EventHub API",
         Version = "v1",
-        Description = "REST API for managing events, bookings, and users."
+        Description = """
+            ## EventHub REST API
+
+            Full-featured event management platform API built with ASP.NET Core 9.
+
+            ### Authentication
+            All protected endpoints require a **Cognito ID token** passed as a Bearer token
+            in the `Authorization` header. Obtain a token by signing in via the frontend
+            (Amazon Cognito User Pool). Token lifetime is 1 hour; use the refresh token
+            to obtain a new one silently.
+
+            ### Roles
+            | Role | Description |
+            |---|---|
+            | `Attendee` | Default role — browse, book, review events |
+            | `Admin` | Organiser role — create and manage own events |
+            | `SuperAdmin` | Platform admin — full access to all resources |
+
+            ### Rate Limits
+            | Policy | Limit | Applied To |
+            |---|---|---|
+            | `auth` | 5 req / min / IP | Auth endpoints (brute-force protection) |
+            | `booking` | 20 req / min / IP | Booking endpoints |
+            | `api` | 200 req / min / IP | All other endpoints |
+
+            Responses exceeding limits return **429 Too Many Requests**.
+
+            ### Pagination
+            List endpoints accept `page` (1-based) and `pageSize` query parameters.
+            Responses include `totalCount`, `page`, `pageSize`, and `totalPages` in the body.
+
+            ### Filtering (Events)
+            `GET /api/events` accepts: `search`, `location`, `categoryId`, `tagIds` (repeatable),
+            `from`, `to`, `sortBy` (`date` | `popularity` | `price`).
+            Array params use repeated-key format: `tagIds=1&tagIds=2`.
+            """,
+        Contact = new OpenApiContact
+        {
+            Name  = "EventHub Development",
+            Email = "dev@eventhub.demo",
+        },
     });
+
+    // Load XML doc comments from the generated documentation file
+    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+        c.IncludeXmlComments(xmlPath);
 
     // JWT bearer auth in Swagger UI
     var jwtScheme = new OpenApiSecurityScheme
     {
         BearerFormat = "JWT",
-        Name = "Authorization",
-        In = ParameterLocation.Header,
-        Type = SecuritySchemeType.Http,
-        Scheme = JwtBearerDefaults.AuthenticationScheme,
-        Description = "Paste your Cognito ID token here (without 'Bearer ' prefix)."
+        Name         = "Authorization",
+        In           = ParameterLocation.Header,
+        Type         = SecuritySchemeType.Http,
+        Scheme       = JwtBearerDefaults.AuthenticationScheme,
+        Description  = "Paste your Cognito ID token here (without 'Bearer ' prefix).",
     };
 
     c.AddSecurityDefinition("Bearer", jwtScheme);

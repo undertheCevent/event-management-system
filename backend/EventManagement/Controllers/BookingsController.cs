@@ -26,6 +26,10 @@ public class BookingsController(
 
     // ── My bookings ────────────────────────────────────────────────
 
+    /// <summary>
+    /// Returns all bookings for the authenticated user, ordered newest first.
+    /// Also lazily awards deferred loyalty points for completed events.
+    /// </summary>
     [HttpGet("mine")]
     public async Task<IActionResult> GetMyBookings()
     {
@@ -63,6 +67,11 @@ public class BookingsController(
 
     // ── Book ───────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Creates a new confirmed booking for the specified event.
+    /// Blocked if: event is draft/cancelled/full/already started, or user is suspended.
+    /// Loyalty points are deferred until after the event ends to prevent earn-cancel abuse.
+    /// </summary>
     [HttpPost]
     public async Task<IActionResult> Create(CreateBookingRequest req)
     {
@@ -171,6 +180,10 @@ public class BookingsController(
 
     // ── Mass-cancel all my bookings for one event ──────────────────
 
+    /// <summary>
+    /// Cancels all confirmed bookings the current user holds for a given event.
+    /// Same 7-day rule applies unless the event itself is cancelled.
+    /// </summary>
     [HttpDelete("events/{eventId}/mine")]
     public async Task<IActionResult> CancelAllForEvent(int eventId)
     {

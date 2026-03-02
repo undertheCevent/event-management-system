@@ -17,6 +17,10 @@ public class ReviewsController(AppDbContext db, ICognitoUserResolver resolver)
 
     // ── List reviews for an event ──────────────────────────────────
 
+    /// <summary>
+    /// Returns all reviews for an event. Pinned review is always first.
+    /// sort: newest (default) | highest | lowest
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetAll(int eventId, [FromQuery] string? sort)
     {
@@ -42,6 +46,10 @@ public class ReviewsController(AppDbContext db, ICognitoUserResolver resolver)
 
     // ── Create a review ────────────────────────────────────────────
 
+    /// <summary>
+    /// Submits a review for a completed event. Requires a confirmed booking on that event.
+    /// One review per user per event. Rating must be 1–5.
+    /// </summary>
     [Authorize]
     [HttpPost]
     public async Task<IActionResult> Create(int eventId, CreateReviewRequest req)
@@ -82,6 +90,7 @@ public class ReviewsController(AppDbContext db, ICognitoUserResolver resolver)
 
     // ── Delete own review ──────────────────────────────────────────
 
+    /// <summary>Deletes the authenticated user's own review for an event.</summary>
     [Authorize]
     [HttpDelete("{reviewId}")]
     public async Task<IActionResult> Delete(int eventId, int reviewId)
@@ -98,6 +107,10 @@ public class ReviewsController(AppDbContext db, ICognitoUserResolver resolver)
 
     // ── Pin a review (host only) ───────────────────────────────────
 
+    /// <summary>
+    /// Pins a review so it always appears first. Unpins any previously pinned review.
+    /// Only the event organiser or an Admin may pin reviews.
+    /// </summary>
     [Authorize]
     [HttpPost("{reviewId}/pin")]
     public async Task<IActionResult> Pin(int eventId, int reviewId)
@@ -125,6 +138,10 @@ public class ReviewsController(AppDbContext db, ICognitoUserResolver resolver)
 
     // ── Reply to a review ──────────────────────────────────────────
 
+    /// <summary>
+    /// Adds the organiser's reply to a review. Only the event creator or an Admin can reply.
+    /// One reply per organiser per review.
+    /// </summary>
     [Authorize]
     [HttpPost("{reviewId}/replies")]
     public async Task<IActionResult> Reply(int eventId, int reviewId, ReviewReplyRequest req)
@@ -166,6 +183,10 @@ public class ReviewsController(AppDbContext db, ICognitoUserResolver resolver)
 
     // ── Like / dislike a review ────────────────────────────────────
 
+    /// <summary>
+    /// Submits or updates a like/dislike vote on a review.
+    /// Calling again with a different IsLike value toggles the vote.
+    /// </summary>
     [Authorize]
     [HttpPost("{reviewId}/vote")]
     public async Task<IActionResult> Vote(int eventId, int reviewId, VoteRequest req)
