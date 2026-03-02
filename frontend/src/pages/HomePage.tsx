@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { motion, useScroll, useTransform } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
+import { format } from 'date-fns'
 import {
   MapPin,
   ChevronRight,
@@ -14,6 +16,10 @@ import {
   Users,
   Mic2,
   Dumbbell,
+  Ticket,
+  Info,
+  Calendar,
+  Tag,
 } from 'lucide-react'
 import { useInfiniteEvents, eventsApi } from '@/api/events'
 import { EventCard } from '@/components/EventCard'
@@ -63,6 +69,13 @@ export function HomePage() {
   const { scrollY } = useScroll()
   const heroY = useTransform(scrollY, [0, 400], [0, 80])
   const heroOpacity = useTransform(scrollY, [0, 300], [1, 0])
+
+  // Featured hero event — first upcoming published event that has a real image
+  const { data: featuredData } = useQuery({
+    queryKey: ['events', 'featured'],
+    queryFn: () => eventsApi.list({ page: 1, pageSize: 8, sortBy: 'popularity' }),
+  })
+  const featuredEvent = featuredData?.items.find((e) => e.imageUrl) ?? featuredData?.items[0] ?? null
 
   // Nearby events
   const { data: nearbyEvents = [], isPending: nearbyPending } = useQuery({
@@ -139,85 +152,147 @@ export function HomePage() {
       {/* ── Hero ───────────────────────────────────────────────────────── */}
       <section
         ref={heroRef}
-        className="relative overflow-hidden"
-        style={{ minHeight: '520px' }}
+        className="relative overflow-hidden bg-stone-950 min-h-[76vh]"
       >
-        {/* Warm gradient background */}
-        <div className="absolute inset-0 bg-gradient-to-br from-orange-500 via-amber-500 to-yellow-400 dark:from-amber-900 dark:via-orange-900 dark:to-stone-900" />
-        {/* Subtle pattern overlay */}
-        <div
-          className="absolute inset-0 opacity-10"
-          style={{
-            backgroundImage:
-              'radial-gradient(circle at 20% 50%, white 1px, transparent 1px), radial-gradient(circle at 80% 20%, white 1px, transparent 1px)',
-            backgroundSize: '60px 60px',
-          }}
-        />
-        {/* Bottom fade */}
-        <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-background to-transparent" />
+        {/* Real event image */}
+        {featuredEvent?.imageUrl ? (
+          <img
+            src={featuredEvent.imageUrl}
+            alt={featuredEvent.title}
+            className="absolute inset-0 h-full w-full object-cover object-center"
+          />
+        ) : (
+          /* Fallback warm gradient while loading */
+          <div className="absolute inset-0 bg-gradient-to-br from-orange-600 via-amber-500 to-yellow-400" />
+        )}
 
+        {/* Left-to-right dark gradient — keeps text legible */}
+        <div className="absolute inset-0 bg-gradient-to-r from-black/95 via-black/70 to-black/10" />
+        {/* Top vignette — blends navbar */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-transparent" />
+        {/* Bottom fade — transitions into the section below */}
+        <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-background to-transparent" />
+
+        {/* Content */}
         <motion.div
-          style={{ y: heroY, opacity: heroOpacity }}
-          className="relative z-10 container mx-auto max-w-4xl px-4 pt-28 pb-20 text-center"
+          style={{ y: heroY, opacity: heroOpacity, minHeight: '76vh', paddingTop: '8rem', paddingBottom: '6rem' }}
+          className="relative z-10 container mx-auto max-w-7xl px-6 flex flex-col justify-center"
         >
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, ease: 'easeOut' }}
-          >
-            <span className="mb-5 inline-block rounded-full border border-white/30 bg-white/20 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-white backdrop-blur-sm">
-              Discover · Book · Connect
-            </span>
-            <h1 className="mb-4 text-4xl font-extrabold tracking-tight text-white sm:text-5xl lg:text-6xl drop-shadow-sm">
-              Find Your Next{' '}
-              <span className="relative inline-block">
-                Experience
-                <span className="absolute bottom-1 left-0 right-0 h-1 rounded-full bg-white/40" />
+          {featuredEvent ? (
+            <motion.div
+              key={featuredEvent.id}
+              initial={{ opacity: 0, x: -24 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.7, ease: 'easeOut' }}
+              className="max-w-xl"
+            >
+              {/* Category badge */}
+              <span className="mb-4 inline-flex items-center gap-1.5 rounded-sm bg-amber-500 px-3 py-1 text-xs font-bold uppercase tracking-widest text-black">
+                <Tag className="h-3 w-3" />
+                {featuredEvent.categoryName}
               </span>
-            </h1>
-            <p className="mx-auto mb-8 max-w-xl text-sm text-white/80 sm:text-base">
-              Browse conferences, workshops, concerts, and more. Book your spot in seconds.
-            </p>
 
-            {/* Location pill */}
-            <div className="flex items-center justify-center gap-2 mb-8">
-              {locationLoading ? (
-                <span className="flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs text-white/70 backdrop-blur-sm">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white/70" />
-                  Detecting your location…
+              {/* Title */}
+              <h1 className="mb-4 text-4xl font-extrabold leading-tight tracking-tight text-white drop-shadow-lg sm:text-5xl lg:text-6xl line-clamp-2">
+                {featuredEvent.title}
+              </h1>
+
+              {/* Metadata row */}
+              <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-white/70">
+                <span className="flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5 text-amber-400" />
+                  {format(new Date(featuredEvent.startDate), 'MMM d, yyyy')}
                 </span>
-              ) : source === 'gps' ? (
-                <span className="flex items-center gap-1.5 rounded-full border border-white/30 bg-white/20 px-4 py-2 text-xs font-medium text-white backdrop-blur-sm">
-                  <Navigation className="h-3 w-3" />
-                  Near {city}
+                <span className="text-white/30">•</span>
+                <span className="flex items-center gap-1.5">
+                  <MapPin className="h-3.5 w-3.5 text-amber-400" />
+                  {featuredEvent.location.split(',')[0]}
                 </span>
-              ) : (
-                <span className="flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs text-white/70 backdrop-blur-sm">
-                  <MapPin className="h-3 w-3" />
-                  {city} — enable location for local results
+                <span className="text-white/30">•</span>
+                <span className="font-semibold text-amber-400">
+                  {featuredEvent.price > 0 ? `$${featuredEvent.price}` : 'Free'}
                 </span>
-              )}
+              </div>
+
+              {/* Description */}
+              <p className="mb-8 max-w-md text-sm leading-relaxed text-white/60 line-clamp-2">
+                {featuredEvent.description}
+              </p>
+
+              {/* CTAs */}
+              <div className="flex items-center gap-3">
+                <Link
+                  to={`/events/${featuredEvent.id}`}
+                  className="flex items-center gap-2 rounded-full bg-amber-500 px-7 py-3 text-sm font-bold text-black shadow-lg shadow-amber-500/30 transition-all hover:bg-amber-400 hover:scale-105 active:scale-100"
+                >
+                  <Ticket className="h-4 w-4" />
+                  Book Now
+                </Link>
+                <Link
+                  to={`/events/${featuredEvent.id}`}
+                  className="flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-7 py-3 text-sm font-semibold text-white backdrop-blur-sm transition-all hover:bg-white/20"
+                >
+                  <Info className="h-4 w-4" />
+                  More Info
+                </Link>
+              </div>
+            </motion.div>
+          ) : (
+            /* Loading skeleton */
+            <div className="max-w-xl space-y-4">
+              <div className="h-5 w-24 rounded-sm bg-white/10 animate-pulse" />
+              <div className="h-14 w-96 max-w-full rounded bg-white/10 animate-pulse" />
+              <div className="h-4 w-64 rounded bg-white/10 animate-pulse" />
+              <div className="h-10 w-80 max-w-full rounded bg-white/10 animate-pulse" />
+              <div className="flex gap-3">
+                <div className="h-12 w-32 rounded-full bg-white/10 animate-pulse" />
+                <div className="h-12 w-32 rounded-full bg-white/10 animate-pulse" />
+              </div>
             </div>
+          )}
+        </motion.div>
+      </section>
+
+      {/* ── Category pills + location ───────────────────────────────────── */}
+      <section className="sticky top-14 z-20 border-b border-border bg-background/95 backdrop-blur-sm">
+        <div className="container mx-auto max-w-7xl px-4">
+          <div className="flex items-center gap-3 overflow-x-auto py-3 scrollbar-hide">
+            {/* Location chip */}
+            {!locationLoading && (
+              <span
+                className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                  source === 'gps'
+                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400'
+                    : 'text-muted-foreground'
+                }`}
+              >
+                {source === 'gps' ? (
+                  <Navigation className="h-3 w-3" />
+                ) : (
+                  <MapPin className="h-3 w-3" />
+                )}
+                {city}
+              </span>
+            )}
+            {!locationLoading && <span className="h-4 w-px shrink-0 bg-border" />}
 
             {/* Category pills */}
-            <div className="flex flex-wrap justify-center gap-2">
-              {CATEGORIES.map(({ label, icon: Icon, filter }) => (
-                <button
-                  key={label}
-                  onClick={() => handleCategoryClick(label, filter)}
-                  className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold transition-colors ${
-                    activeCategory === label
-                      ? 'bg-white text-orange-600 shadow-md'
-                      : 'border border-white/30 bg-white/15 text-white hover:bg-white/25 backdrop-blur-sm'
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {label}
-                </button>
-              ))}
-            </div>
-          </motion.div>
-        </motion.div>
+            {CATEGORIES.map(({ label, icon: Icon, filter }) => (
+              <button
+                key={label}
+                onClick={() => handleCategoryClick(label, filter)}
+                className={`flex shrink-0 items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-semibold transition-all ${
+                  activeCategory === label
+                    ? 'bg-amber-500 text-black shadow-sm shadow-amber-500/30'
+                    : 'border border-border text-foreground hover:bg-muted'
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
       </section>
 
       {/* ── Nearby Events ──────────────────────────────────────────────── */}
