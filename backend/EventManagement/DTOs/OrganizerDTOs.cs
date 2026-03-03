@@ -26,7 +26,8 @@ public record OrganizerEventSummary(
     string DisplayStatus,
     DateTime StartDate,
     int ConfirmedBookings,
-    int Capacity
+    int Capacity,
+    string? ImageUrl
 );
 
 public record OrganizerDashboard(

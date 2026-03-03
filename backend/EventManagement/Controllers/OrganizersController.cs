@@ -36,7 +36,8 @@ public class OrganizersController(AppDbContext db, ICognitoUserResolver resolver
                 ComputeDisplayStatus(e, e.Bookings.Count(b => b.Status == StatusConfirmed)),
                 e.StartDate,
                 e.Bookings.Count(b => b.Status == StatusConfirmed),
-                e.Capacity))
+                e.Capacity,
+                e.ImageUrl))
             .ToListAsync();
 
         return Ok(new OrganizerPublicProfile(

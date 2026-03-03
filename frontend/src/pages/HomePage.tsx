@@ -73,9 +73,9 @@ export function HomePage() {
   // Featured hero event — first upcoming published event that has a real image
   const { data: featuredData } = useQuery({
     queryKey: ['events', 'featured'],
-    queryFn: () => eventsApi.list({ page: 1, pageSize: 8, sortBy: 'popularity' }),
+    queryFn: () => eventsApi.list({ sortBy: 'popularity' }),
   })
-  const featuredEvent = featuredData?.items.find((e) => e.imageUrl) ?? featuredData?.items[0] ?? null
+  const featuredEvent = featuredData?.find((e) => e.imageUrl) ?? featuredData?.[0] ?? null
 
   // Nearby events
   const { data: nearbyEvents = [], isPending: nearbyPending } = useQuery({
@@ -144,6 +144,7 @@ export function HomePage() {
         const { categoryId: _c, tagIds: _t, ...rest } = f
         return { ...rest, ...filter }
       })
+      scrollToAll()
     }
   }
 

@@ -196,6 +196,7 @@ export interface OrganizerEvent {
   startDate: string
   confirmedBookings: number
   capacity: number
+  imageUrl: string | null
 }
 
 export interface OrganizerProfile {
