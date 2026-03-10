@@ -107,7 +107,7 @@ export function EventCard({ event }: Props) {
           />
         ) : (
           <div className={`flex h-full w-full items-center justify-center bg-gradient-to-br ${gradient}`}>
-            <span className="select-none text-6xl font-extrabold text-white/20">
+            <span className="select-none text-6xl font-extrabold text-white/20" aria-hidden="true">
               {event.categoryName.charAt(0)}
             </span>
           </div>
@@ -139,12 +139,14 @@ export function EventCard({ event }: Props) {
         </h3>
 
         <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground sm:text-sm">
-          <Calendar className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-          <span className="truncate">{formatDateRange(event.startDate, event.endDate)}</span>
+          <Calendar className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden="true" />
+          <time dateTime={event.startDate} className="truncate">
+            {formatDateRange(event.startDate, event.endDate)}
+          </time>
         </div>
 
         <div className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground sm:text-sm">
-          <MapPin className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+          <MapPin className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden="true" />
           <span className="truncate">{event.location}</span>
         </div>
 

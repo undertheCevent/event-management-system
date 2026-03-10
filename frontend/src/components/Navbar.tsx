@@ -180,7 +180,7 @@ export function Navbar() {
             isTransparent ? 'text-white' : 'text-foreground'
           }`}
         >
-          <Zap className="h-5 w-5 text-amber-400" />
+          <Zap className="h-5 w-5 text-amber-400" aria-hidden="true" />
           <span>EventHub</span>
         </Link>
 
@@ -365,6 +365,9 @@ export function Navbar() {
               <Button
                 variant="ghost"
                 size="icon"
+                aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+                aria-expanded={mobileOpen}
+                aria-controls="mobile-nav"
                 className={`md:hidden ${isTransparent ? 'text-white hover:bg-white/10' : ''}`}
               >
                 <AnimatePresence mode="wait">
@@ -381,7 +384,7 @@ export function Navbar() {
               </Button>
             </SheetTrigger>
             <SheetContent side="right" className="w-64">
-              <div className="mt-6 flex flex-col gap-4">
+              <nav id="mobile-nav" aria-label="Mobile navigation" className="mt-6 flex flex-col gap-4">
                 {navLinks}
                 <Separator />
                 {user ? (
@@ -423,7 +426,7 @@ export function Navbar() {
                     </Link>
                   </>
                 )}
-              </div>
+              </nav>
             </SheetContent>
           </Sheet>
         </div>

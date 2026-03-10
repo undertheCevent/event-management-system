@@ -160,6 +160,9 @@ export function HomePage() {
           <img
             src={featuredEvent.imageUrl}
             alt={featuredEvent.title}
+            width={1280}
+            height={720}
+            fetchPriority="high"
             className="absolute inset-0 h-full w-full object-cover object-center"
           />
         ) : (
@@ -189,7 +192,7 @@ export function HomePage() {
             >
               {/* Category badge */}
               <span className="mb-4 inline-flex items-center gap-1.5 rounded-sm bg-amber-500 px-3 py-1 text-xs font-bold uppercase tracking-widest text-black">
-                <Tag className="h-3 w-3" />
+                <Tag className="h-3 w-3" aria-hidden="true" />
                 {featuredEvent.categoryName}
               </span>
 
@@ -201,15 +204,17 @@ export function HomePage() {
               {/* Metadata row */}
               <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-white/70">
                 <span className="flex items-center gap-1.5">
-                  <Calendar className="h-3.5 w-3.5 text-amber-400" />
-                  {format(new Date(featuredEvent.startDate), 'MMM d, yyyy')}
+                  <Calendar className="h-3.5 w-3.5 text-amber-400" aria-hidden="true" />
+                  <time dateTime={featuredEvent.startDate}>
+                    {format(new Date(featuredEvent.startDate), 'MMM d, yyyy')}
+                  </time>
                 </span>
-                <span className="text-white/30">•</span>
+                <span className="text-white/30" aria-hidden="true">•</span>
                 <span className="flex items-center gap-1.5">
-                  <MapPin className="h-3.5 w-3.5 text-amber-400" />
+                  <MapPin className="h-3.5 w-3.5 text-amber-400" aria-hidden="true" />
                   {featuredEvent.location.split(',')[0]}
                 </span>
-                <span className="text-white/30">•</span>
+                <span className="text-white/30" aria-hidden="true">•</span>
                 <span className="font-semibold text-amber-400">
                   {featuredEvent.price > 0 ? `$${featuredEvent.price}` : 'Free'}
                 </span>
@@ -255,7 +260,7 @@ export function HomePage() {
       </section>
 
       {/* ── Category pills + location ───────────────────────────────────── */}
-      <section className="sticky top-14 z-20 border-b border-border bg-background/95 backdrop-blur-sm">
+      <section aria-label="Browse by category" className="sticky top-14 z-20 border-b border-border bg-background/95 backdrop-blur-sm">
         <div className="container mx-auto max-w-7xl px-4">
           <div className="flex items-center gap-3 overflow-x-auto py-3 scrollbar-hide">
             {/* Location chip */}
@@ -328,21 +333,21 @@ export function HomePage() {
 
             {/* Cards */}
             {nearbyPending ? (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {Array.from({ length: 4 }).map((_, i) => <EventCardSkeleton key={i} />)}
-              </div>
+              <ul aria-label="Loading nearby events" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 list-none p-0">
+                {Array.from({ length: 4 }).map((_, i) => <li key={i}><EventCardSkeleton /></li>)}
+              </ul>
             ) : nearbyEvents.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No upcoming events found near {city}.
               </p>
             ) : (
-              <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide sm:grid sm:grid-cols-2 sm:gap-4 sm:overflow-visible lg:grid-cols-3 xl:grid-cols-4">
+              <ul aria-label={`Events near ${city}`} className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide sm:grid sm:grid-cols-2 sm:gap-4 sm:overflow-visible lg:grid-cols-3 xl:grid-cols-4 list-none p-0">
                 {nearbyEvents.slice(0, 8).map((event) => (
-                  <div key={event.id} className="w-64 shrink-0 sm:w-auto">
+                  <li key={event.id} className="w-64 shrink-0 sm:w-auto">
                     <EventCard event={event} />
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </div>
         </section>
@@ -368,9 +373,9 @@ export function HomePage() {
         )}
 
         {isPending ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {Array.from({ length: 8 }).map((_, i) => <EventCardSkeleton key={i} />)}
-          </div>
+          <ul aria-label="Loading events" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 list-none p-0">
+            {Array.from({ length: 8 }).map((_, i) => <li key={i}><EventCardSkeleton /></li>)}
+          </ul>
         ) : error ? (
           <div className="py-16 text-center text-muted-foreground">
             Failed to load events. Please try again.
@@ -401,11 +406,13 @@ export function HomePage() {
           </div>
         ) : (
           <>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <ul aria-label="All events" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 list-none p-0">
               {events.map((event) => (
-                <EventCard key={event.id} event={event} />
+                <li key={event.id}>
+                  <EventCard event={event} />
+                </li>
               ))}
-            </div>
+            </ul>
 
             {/* Infinite scroll sentinel */}
             <div ref={sentinelRef} className="mt-6" />

@@ -31,10 +31,10 @@ export function RootLayout() {
         <footer className="border-t border-border bg-background py-6">
           <div className="container mx-auto flex flex-col items-center justify-between gap-3 px-4 text-xs text-muted-foreground sm:flex-row">
             <span>© {new Date().getFullYear()} EventHub. All rights reserved.</span>
-            <div className="flex gap-4">
+            <nav aria-label="Legal links" className="flex gap-4">
               <Link to="/terms" className="hover:text-foreground hover:underline">Terms of Service</Link>
               <Link to="/privacy" className="hover:text-foreground hover:underline">Privacy Policy</Link>
-            </div>
+            </nav>
           </div>
         </footer>
       )}
