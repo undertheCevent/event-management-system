@@ -36,12 +36,12 @@ For detailed documentation see:
 | Runtime | .NET 9 / C# 13 | Performance improvements, minimal APIs friendly |
 | Web framework | ASP.NET Core MVC (Controllers) | Attribute-based routing, model binding, DI |
 | ORM | Entity Framework Core 9 | Code-first migrations, LINQ queries |
-| Database | SQLite (dev) | Zero-config, portable, file-based |
+| Database | PostgreSQL 15 (Supabase) | Managed cloud PostgreSQL via Supavisor session pooler |
 | Object storage | AWS S3 + AWS SDK for .NET | Durable, scalable storage for uploads and media |
 | Auth | JWT Bearer (HS256) | Stateless, standard, easy to validate |
 | Password hashing | BCrypt.Net-Next | Adaptive cost, industry standard |
 | Testing | xUnit + `WebApplicationFactory` | In-process integration testing with real HTTP |
-| Test database | In-memory SQLite | Isolated, fast, schema-faithful |
+| Test database | In-memory SQLite | Isolated, fast, schema-faithful (tests only) |
 
 ### Frontend
 
@@ -91,7 +91,7 @@ For detailed documentation see:
 └──────────────────────────────────────────────┼──────────┘
                                                │
 ┌──────────────────────────────────────────────▼──────────┐
-│                    SQLite Database                      │
+│         PostgreSQL 15 (Supabase / Supavisor)            │
 └─────────────────────────────────────────────────────────┘
              ▲
              │

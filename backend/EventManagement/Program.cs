@@ -20,7 +20,7 @@ builder.Logging.AddAWSProvider(builder.Configuration.GetAWSLoggingConfigSection(
 
 // Database
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // Cognito config
 var cognitoRegion   = builder.Configuration["Cognito:Region"]!;

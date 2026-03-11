@@ -1,6 +1,6 @@
 # Database Schema
 
-The system uses **SQLite** in development (swappable to PostgreSQL/MySQL via connection string). The schema is managed by **EF Core 9 code-first migrations**, which are applied automatically on startup.
+The system uses **PostgreSQL 15** hosted on **Supabase**, accessed via the Supavisor session pooler (`aws-1-ap-southeast-2.pooler.supabase.com:5432`). The schema is managed by **EF Core 9 code-first migrations** using `Npgsql.EntityFrameworkCore.PostgreSQL`. Integration tests use an in-memory SQLite database (test project only).
 
 ---
 
@@ -499,6 +499,15 @@ Seed data is applied via EF Core `HasData` in `AppDbContext` and is present in e
 
 EF Core migrations are stored in `backend/EventManagement/Migrations/` and applied automatically on startup via `app.MigrateDatabase()` in `Program.cs`. No manual `dotnet ef database update` is required.
 
+The initial PostgreSQL schema was bootstrapped by generating a SQL script and applying it via the Supabase SQL editor:
+
+```bash
+cd backend/EventManagement
+dotnet ef migrations add <MigrationName>
+dotnet ef migrations script --output migration.sql
+# Paste migration.sql into Supabase Dashboard → SQL Editor → Run
+```
+
 To add a migration after a model change:
 
 ```bash
@@ -506,8 +515,10 @@ cd backend/EventManagement
 dotnet ef migrations add <MigrationName>
 ```
 
-To roll back locally:
+To apply migrations (requires direct DB access):
 
 ```bash
-dotnet ef database update <PreviousMigrationName>
+dotnet ef database update
 ```
+
+> **Note:** The Supabase free tier uses IPv4-only networking. Always connect via the **session pooler** endpoint (`aws-1-ap-southeast-2.pooler.supabase.com:5432`) with username `postgres.<project-ref>`. The direct host (`db.<project-ref>.supabase.co`) is IPv6-only and will fail on IPv4-only networks.
