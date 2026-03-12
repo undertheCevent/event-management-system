@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -28,6 +28,10 @@ import {
   ThumbsDown,
   Megaphone,
   Star,
+  Share2,
+  CalendarPlus,
+  Timer,
+  Flame,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -63,9 +67,9 @@ import {
   usePostAnnouncement,
   useGenerateInviteCode,
   useRevokeInviteCode,
+  useRelatedEvents,
 } from '@/api/events'
-import { useMineBookings, useCreateBooking, useCancelBooking } from '@/api/bookings'
-import { useWaitlistPosition, useJoinWaitlist, useLeaveWaitlist } from '@/api/waitlist'
+import { useMineBookings, useCreateBooking, useCancelBooking, bookingsApi } from '@/api/bookings'
 import {
   useReviews,
   useCreateReview,
@@ -91,6 +95,26 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import { StarRating } from '@/components/StarRating'
+import { EventCard } from '@/components/EventCard'
+
+function useCountdown(targetDate: string | undefined): string | null {
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (!targetDate) return
+    const id = setInterval(() => setTick((n) => n + 1), 1000)
+    return () => clearInterval(id)
+  }, [targetDate])
+  if (!targetDate) return null
+  const diff = new Date(targetDate).getTime() - Date.now()
+  if (diff <= 0) return null
+  const days = Math.floor(diff / 86_400_000)
+  const hours = Math.floor((diff % 86_400_000) / 3_600_000)
+  const minutes = Math.floor((diff % 3_600_000) / 60_000)
+  const seconds = Math.floor((diff % 60_000) / 1_000)
+  if (days > 0) return `${days}d ${hours}h`
+  if (hours > 0) return `${hours}h ${minutes}m`
+  return `${minutes}m ${seconds}s`
+}
 
 export function EventDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -128,11 +152,9 @@ export function EventDetailPage() {
   const voteReview = useVoteReview(eventId)
   const follow = useFollowHost()
   const unfollow = useUnfollowHost()
-  const { data: waitlistPos } = useWaitlistPosition(eventId)
-  const joinWaitlist = useJoinWaitlist(eventId)
-  const leaveWaitlist = useLeaveWaitlist(eventId)
   const generateInviteCode = useGenerateInviteCode(eventId)
   const revokeInviteCode = useRevokeInviteCode(eventId)
+  const { data: relatedEvents = [] } = useRelatedEvents(event?.categoryId, eventId)
 
   const [cancelBookingConfirm, setCancelBookingConfirm] = useState(false)
   const [cancelEventConfirm, setCancelEventConfirm] = useState(false)
@@ -166,6 +188,9 @@ export function EventDetailPage() {
     ),
   })
 
+  // Must be called before any conditional returns (Rules of Hooks)
+  const countdown = useCountdown(event?.startDate)
+
   if (isPending) return <LoadingSpinner />
   if (error || !event) {
     return (
@@ -180,6 +205,13 @@ export function EventDetailPage() {
 
   const spotsLeft = event.capacity - event.bookingCount
   const capacityPct = Math.min((event.bookingCount / event.capacity) * 100, 100)
+  const isUpcoming =
+    event.displayStatus === 'Published' ||
+    event.displayStatus === 'Live' ||
+    event.displayStatus === 'Postponed'
+  const isHappeningNow =
+    Date.now() >= new Date(event.startDate).getTime() &&
+    Date.now() <= new Date(event.endDate).getTime()
   const isBookable =
     (event.displayStatus === 'Published' || event.displayStatus === 'Live') &&
     !myBooking &&
@@ -233,11 +265,30 @@ export function EventDetailPage() {
             />
           </div>
           {spotsLeft <= 20 && spotsLeft > 0 && event.displayStatus !== 'Cancelled' && (
-            <p className="mt-1.5 text-xs font-medium text-orange-600">
+            <div className={`mt-1.5 flex items-center gap-1 text-xs font-semibold ${spotsLeft <= 10 ? 'text-red-600' : 'text-orange-600'}`}>
+              {spotsLeft <= 10 && <Flame className="h-3.5 w-3.5" />}
               Only {spotsLeft} spot{spotsLeft !== 1 ? 's' : ''} left!
-            </p>
+            </div>
           )}
         </div>
+
+        {/* Countdown timer */}
+        {isUpcoming && (
+          <div className={`mb-4 flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${
+            isHappeningNow
+              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400'
+              : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
+          }`}>
+            <Timer className="h-4 w-4 shrink-0" />
+            {isHappeningNow ? (
+              <span className="font-medium">Happening Now</span>
+            ) : countdown ? (
+              <span>Starts in <span className="font-semibold">{countdown}</span></span>
+            ) : (
+              <span className="font-medium">Starting soon</span>
+            )}
+          </div>
+        )}
 
         {/* CTA */}
         {!canManage && (
@@ -256,6 +307,27 @@ export function EventDetailPage() {
                 <Button
                   variant="outline"
                   size="sm"
+                  className="w-full"
+                  onClick={async () => {
+                    try {
+                      const blob = await bookingsApi.downloadIcs(myBooking.id)
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement('a')
+                      a.href = url
+                      a.download = `${event.title.replace(/\s+/g, '-')}.ics`
+                      a.click()
+                      URL.revokeObjectURL(url)
+                    } catch {
+                      toast.error('Failed to download calendar file.')
+                    }
+                  }}
+                >
+                  <CalendarPlus className="mr-1.5 h-4 w-4" />
+                  Add to Calendar
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   className="w-full text-red-600 hover:text-red-700"
                   onClick={() => setCancelBookingConfirm(true)}
                 >
@@ -263,30 +335,9 @@ export function EventDetailPage() {
                 </Button>
               </div>
             ) : event.displayStatus === 'SoldOut' ? (
-              waitlistPos ? (
-                <div className="space-y-2">
-                  <p className="text-center text-sm text-muted-foreground">
-                    You&apos;re <span className="font-semibold text-foreground">#{waitlistPos.position}</span> on the waitlist
-                  </p>
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => leaveWaitlist.mutate()}
-                    disabled={leaveWaitlist.isPending}
-                  >
-                    Leave Waitlist
-                  </Button>
-                </div>
-              ) : (
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => joinWaitlist.mutate()}
-                  disabled={joinWaitlist.isPending}
-                >
-                  {joinWaitlist.isPending ? 'Joining…' : 'Join Waitlist'}
-                </Button>
-              )
+              <Button disabled variant="outline" className="w-full">
+                Sold Out
+              </Button>
             ) : event.displayStatus === 'Cancelled' ? (
               <Button disabled variant="outline" className="w-full">
                 Event Cancelled
@@ -310,6 +361,32 @@ export function EventDetailPage() {
             You are managing this event
           </p>
         )}
+
+        {/* Social share */}
+        <div className="mt-4 border-t border-border pt-4">
+          <p className="mb-2 text-xs font-medium text-muted-foreground">Share this event</p>
+          <div className="flex items-center gap-2">
+            <a
+              href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(event.title)}&url=${encodeURIComponent(window.location.href)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground transition hover:border-sky-400 hover:text-sky-600"
+            >
+              <Share2 className="h-3.5 w-3.5" />
+              X / Twitter
+            </a>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(window.location.href)
+                toast.success('Link copied!')
+              }}
+              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground transition hover:border-amber-400 hover:text-amber-600"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              Copy link
+            </button>
+          </div>
+        </div>
       </div>
     )
   }
@@ -994,6 +1071,18 @@ export function EventDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Related Events ─────────────────────────────────────────── */}
+      {relatedEvents.length > 0 && (
+        <div className="container mx-auto max-w-5xl px-4 pb-12">
+          <h2 className="mb-5 text-xl font-bold text-foreground">More Events Like This</h2>
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {relatedEvents.map((e) => (
+              <EventCard key={e.id} event={e} />
+            ))}
+          </div>
+        </div>
+      )}
 
       <Separator className="my-2" />
 

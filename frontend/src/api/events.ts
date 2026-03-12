@@ -202,6 +202,22 @@ export function usePostponeEvent(id: number) {
   })
 }
 
+export function useRelatedEvents(categoryId: number | undefined, excludeId: number) {
+  return useQuery({
+    queryKey: ['events', 'related', categoryId],
+    queryFn: () => eventsApi.list({ categoryId: categoryId! }),
+    enabled: !!categoryId,
+    select: (data) =>
+      data
+        .filter(
+          (e) =>
+            e.id !== excludeId &&
+            (e.displayStatus === 'Published' || e.displayStatus === 'Live'),
+        )
+        .slice(0, 3),
+  })
+}
+
 export function usePostAnnouncement(eventId: number) {
   return useMutation({
     mutationFn: (data: CreateAnnouncementRequest) =>

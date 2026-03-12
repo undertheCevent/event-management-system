@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Calendar,
@@ -12,8 +12,12 @@ import {
   XCircle,
   ChevronRight,
   Star,
+  Search,
+  Zap,
+  AlertTriangle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import {
   Dialog,
@@ -39,12 +43,36 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-function getLabel(b: Booking): { text: string } {
-  if (b.status === 'Cancelled') return { text: 'Cancelled' }
+function getLabel(b: Booking): string {
+  if (b.status === 'Cancelled') return 'Cancelled'
   const now = Date.now()
-  if (new Date(b.eventEndDate).getTime() < now) return { text: 'Completed' }
-  if (new Date(b.eventStartDate).getTime() <= now) return { text: 'Happening Now' }
-  return { text: 'Upcoming' }
+  if (new Date(b.eventEndDate).getTime() < now) return 'Completed'
+  if (new Date(b.eventStartDate).getTime() <= now) return 'Happening Now'
+  return 'Upcoming'
+}
+
+/** Returns "2d 4h", "3h 12m", "45m 20s" until targetDate, or null if past. Updates every second. */
+function useCountdown(targetDate: string | undefined): string | null {
+  const [, setTick] = useState(0)
+
+  useEffect(() => {
+    if (!targetDate) return
+    const id = setInterval(() => setTick((n) => n + 1), 1000)
+    return () => clearInterval(id)
+  }, [targetDate])
+
+  if (!targetDate) return null
+  const diff = new Date(targetDate).getTime() - Date.now()
+  if (diff <= 0) return null
+
+  const days    = Math.floor(diff / 86_400_000)
+  const hours   = Math.floor((diff % 86_400_000) / 3_600_000)
+  const minutes = Math.floor((diff % 3_600_000)  / 60_000)
+  const seconds = Math.floor((diff % 60_000)      / 1_000)
+
+  if (days > 0)  return `${days}d ${hours}h`
+  if (hours > 0) return `${hours}h ${minutes}m`
+  return `${minutes}m ${seconds}s`
 }
 
 const CARD_ACCENTS = [
@@ -64,6 +92,36 @@ const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: 'cancelled', label: 'Cancelled', icon: XCircle      },
 ]
 
+// ── Next-event countdown banner ───────────────────────────────────────────────
+
+function NextEventBanner({ booking }: { booking: Booking }) {
+  const countdown = useCountdown(booking.eventStartDate)
+  if (!countdown) return null
+
+  return (
+    <div className="mb-5 flex items-center justify-between gap-4 overflow-hidden rounded-2xl border border-amber-200 dark:border-amber-800 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/20 px-5 py-4">
+      <div className="flex items-center gap-3">
+        <div className="rounded-xl bg-amber-500 p-2 shrink-0">
+          <Zap className="h-4 w-4 text-white" />
+        </div>
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">Next Event</p>
+          <p className="mt-0.5 text-sm font-bold text-stone-900 dark:text-stone-100 leading-snug line-clamp-1">
+            {booking.eventTitle}
+          </p>
+          <p className="mt-0.5 text-xs text-stone-500 dark:text-stone-400">
+            {formatDate(booking.eventStartDate, 'EEE, MMM d · h:mm a')} · {booking.eventLocation}
+          </p>
+        </div>
+      </div>
+      <div className="shrink-0 text-right">
+        <p className="text-2xl font-black tabular-nums text-amber-600 dark:text-amber-400 leading-none">{countdown}</p>
+        <p className="mt-0.5 text-[10px] text-stone-400">until doors open</p>
+      </div>
+    </div>
+  )
+}
+
 // ── Booking card ──────────────────────────────────────────────────────────────
 
 function BookingCard({
@@ -77,13 +135,29 @@ function BookingCard({
   onQr: (b: Booking) => void
   onCancel: (b: Booking) => void
 }) {
-  const accent = CARD_ACCENTS[booking.eventId % CARD_ACCENTS.length]
-  const { text: labelText } = getLabel(booking)
+  const now = Date.now()
+  const isLive = booking.status === 'Confirmed'
+    && new Date(booking.eventStartDate).getTime() <= now
+    && new Date(booking.eventEndDate).getTime() > now
+  const labelText = getLabel(booking)
   const canCancel = !isPast && booking.status !== 'Cancelled'
 
+  // Warn when within 7 days of start
+  const hoursUntil = (new Date(booking.eventStartDate).getTime() - now) / 3_600_000
+  const nearCancelDeadline = canCancel && hoursUntil > 0 && hoursUntil < 168
+
+  const accent = isLive
+    ? 'border-l-emerald-500'
+    : CARD_ACCENTS[booking.eventId % CARD_ACCENTS.length]
+
   return (
-    <div className="group overflow-hidden rounded-2xl border border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 shadow-sm transition-shadow hover:shadow-md">
-      {/* Image banner — only when a real photo exists */}
+    <div className={`group overflow-hidden rounded-2xl border bg-white dark:bg-stone-900 shadow-sm transition-shadow hover:shadow-md
+      ${isLive
+        ? 'border-emerald-300 dark:border-emerald-700 ring-2 ring-emerald-200 dark:ring-emerald-900'
+        : 'border-stone-200 dark:border-stone-800'
+      }`}
+    >
+      {/* Image banner */}
       {booking.eventImageUrl && (
         <div className="relative h-40 w-full overflow-hidden">
           <img
@@ -91,7 +165,10 @@ function BookingCard({
             alt={booking.eventTitle}
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
           />
-          <span className="absolute left-3 top-3 rounded-full bg-black/50 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur-sm">
+          <span className={`absolute left-3 top-3 rounded-full px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur-sm
+            ${isLive ? 'bg-emerald-500/90' : 'bg-black/50'}`}
+          >
+            {isLive && <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-white" />}
             {labelText}
           </span>
         </div>
@@ -106,7 +183,13 @@ function BookingCard({
             {booking.eventTitle}
           </Link>
           {!booking.eventImageUrl && (
-            <span className="shrink-0 rounded-full bg-stone-100 dark:bg-stone-800 px-2 py-0.5 text-[10px] font-semibold text-stone-500 dark:text-stone-400">
+            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold
+              ${isLive
+                ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400'
+                : 'bg-stone-100 dark:bg-stone-800 text-stone-500 dark:text-stone-400'
+              }`}
+            >
+              {isLive && <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />}
               {labelText}
             </span>
           )}
@@ -126,7 +209,7 @@ function BookingCard({
         <div className="mt-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-sm font-bold text-stone-900 dark:text-stone-100">
-              {formatCurrency(booking.eventPrice)}
+              {booking.eventPrice === 0 ? 'Free' : formatCurrency(booking.eventPrice)}
             </span>
             {booking.pointsEarned > 0 && booking.status !== 'Cancelled' && (
               <span className="flex items-center gap-0.5 rounded-full bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 text-[11px] font-semibold text-amber-600 dark:text-amber-400">
@@ -143,19 +226,34 @@ function BookingCard({
           )}
         </div>
 
+        {/* 7-day cancellation warning */}
+        {nearCancelDeadline && (
+          <div className="mt-3 flex items-center gap-1.5 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 px-3 py-2">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              Cancellations close in {Math.ceil(hoursUntil)}h — cancel by {formatDate(
+                new Date(new Date(booking.eventStartDate).getTime() - 7 * 24 * 3600 * 1000).toISOString(),
+                'MMM d'
+              )}
+            </p>
+          </div>
+        )}
+
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-stone-100 dark:border-stone-800 pt-4">
           {canCancel && (
             <>
               <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={() => onQr(booking)}>
                 <QrCode className="h-3.5 w-3.5" />
-                QR Code
+                QR Ticket
               </Button>
               <Button
                 size="sm"
                 variant="outline"
                 className="h-7 gap-1.5 text-xs"
                 onClick={() =>
-                  bookingsApi.downloadIcs(booking.id).then((blob) => downloadBlob(blob, `event-${booking.eventId}.ics`))
+                  bookingsApi.downloadIcs(booking.id).then((blob) =>
+                    downloadBlob(blob, `event-${booking.eventId}.ics`)
+                  )
                 }
               >
                 <CalendarPlus className="h-3.5 w-3.5" />
@@ -188,10 +286,21 @@ function BookingCard({
 
 // ── Empty state ───────────────────────────────────────────────────────────────
 
-function EmptyState({ tab }: { tab: TabKey }) {
+function EmptyState({ tab, hasSearch }: { tab: TabKey; hasSearch: boolean }) {
+  if (hasSearch) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-stone-200 dark:border-stone-800 py-16 text-center">
+        <div className="mb-3 rounded-full bg-stone-100 dark:bg-stone-800 p-4">
+          <Search className="h-6 w-6 text-stone-400" />
+        </div>
+        <p className="text-sm font-medium text-stone-500 dark:text-stone-400">No events match your search.</p>
+      </div>
+    )
+  }
+
   const msgs: Record<TabKey, string> = {
-    upcoming: 'No upcoming bookings.',
-    past: 'No past events yet.',
+    upcoming:  'No upcoming bookings.',
+    past:      'No past events yet.',
     cancelled: 'No cancelled bookings.',
   }
   return (
@@ -217,6 +326,7 @@ export function MyBookingsPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('upcoming')
   const [qrBooking, setQrBooking] = useState<Booking | null>(null)
   const [cancelTarget, setCancelTarget] = useState<Booking | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
   const ticketRef = useRef<HTMLDivElement>(null)
 
   function handlePrint() {
@@ -249,11 +359,33 @@ export function MyBookingsPage() {
 
   const now = Date.now()
   const confirmed = bookings.filter((b) => b.status === 'Confirmed')
-  const upcoming  = confirmed.filter((b) => new Date(b.eventEndDate).getTime() >= now)
-  const past      = confirmed.filter((b) => new Date(b.eventEndDate).getTime() < now)
-  const cancelled = bookings.filter((b) => b.status === 'Cancelled')
+
+  // Sorted lists: upcoming soonest-first, past most-recent-first
+  const upcoming = confirmed
+    .filter((b) => new Date(b.eventEndDate).getTime() >= now)
+    .sort((a, b) => new Date(a.eventStartDate).getTime() - new Date(b.eventStartDate).getTime())
+  const past = confirmed
+    .filter((b) => new Date(b.eventEndDate).getTime() < now)
+    .sort((a, b) => new Date(b.eventStartDate).getTime() - new Date(a.eventStartDate).getTime())
+  const cancelled = bookings
+    .filter((b) => b.status === 'Cancelled')
+    .sort((a, b) => new Date(b.eventStartDate).getTime() - new Date(a.eventStartDate).getTime())
 
   const tabLists: Record<TabKey, Booking[]> = { upcoming, past, cancelled }
+
+  // Total loyalty points earned across all confirmed bookings
+  const totalPoints = confirmed.reduce((sum, b) => sum + b.pointsEarned, 0)
+
+  // Apply search filter
+  const q = searchQuery.trim().toLowerCase()
+  const displayed = q
+    ? tabLists[activeTab].filter((b) => b.eventTitle.toLowerCase().includes(q))
+    : tabLists[activeTab]
+
+  // Next upcoming event (for countdown banner — skip "Happening Now" events)
+  const nextFuture = upcoming.find(
+    (b) => new Date(b.eventStartDate).getTime() > now,
+  )
 
   if (isPending) return <LoadingSpinner />
 
@@ -263,17 +395,16 @@ export function MyBookingsPage() {
       {/* ── Header ── */}
       <div className="border-b border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900">
         <div className="container mx-auto max-w-4xl px-4 py-6">
-          <h1 className="text-xl font-bold text-stone-900 dark:text-stone-100 sm:text-2xl">My Bookings</h1>
-          <p className="mt-1 text-xs text-stone-400 sm:text-sm">
-            All your event tickets in one place
-          </p>
+          <h1 className="text-xl font-bold text-stone-900 dark:text-stone-100 sm:text-2xl">My Tickets</h1>
+          <p className="mt-1 text-xs text-stone-400 sm:text-sm">All your event tickets in one place</p>
 
-          {/* ── Stat row ── */}
-          <div className="mt-5 grid grid-cols-3 gap-3">
+          {/* ── 4 KPI cards ── */}
+          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
-              { label: 'Upcoming',  value: upcoming.length,  icon: Clock,        color: 'text-amber-500',   bg: 'bg-amber-50 dark:bg-amber-950/30'   },
-              { label: 'Attended',  value: past.length,      icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-950/30' },
-              { label: 'Cancelled', value: cancelled.length, icon: XCircle,      color: 'text-rose-500',    bg: 'bg-rose-50 dark:bg-rose-950/30'    },
+              { label: 'Upcoming',  value: upcoming.length,  icon: Clock,        color: 'text-amber-500',   bg: 'bg-amber-50 dark:bg-amber-950/30'     },
+              { label: 'Attended',  value: past.length,      icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-950/30'  },
+              { label: 'Cancelled', value: cancelled.length, icon: XCircle,      color: 'text-rose-500',    bg: 'bg-rose-50 dark:bg-rose-950/30'        },
+              { label: 'Pts Earned',value: totalPoints.toLocaleString(), icon: Star, color: 'text-purple-500', bg: 'bg-purple-50 dark:bg-purple-950/30' },
             ].map(({ label, value, icon: Icon, color, bg }) => (
               <div key={label} className={`rounded-2xl ${bg} border border-stone-100 dark:border-stone-800 p-4`}>
                 <div className="flex items-center gap-2">
@@ -289,14 +420,29 @@ export function MyBookingsPage() {
 
       <div className="container mx-auto max-w-4xl px-4 py-6">
 
-        {/* ── Custom tabs ── */}
+        {/* ── Countdown banner ── */}
+        {nextFuture && <NextEventBanner booking={nextFuture} />}
+
+        {/* ── Search bar ── */}
+        <div className="relative mb-4">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400 pointer-events-none" />
+          <Input
+            type="search"
+            placeholder="Search events…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 bg-white dark:bg-stone-900 rounded-xl border-stone-200 dark:border-stone-700 text-sm"
+          />
+        </div>
+
+        {/* ── Tabs ── */}
         <div className="mb-5 flex gap-1 rounded-xl bg-stone-100 dark:bg-stone-800/60 p-1">
           {TABS.map(({ key, label, icon: Icon }) => {
             const count = tabLists[key].length
             return (
               <button
                 key={key}
-                onClick={() => setActiveTab(key)}
+                onClick={() => { setActiveTab(key); setSearchQuery('') }}
                 className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
                   activeTab === key
                     ? 'bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 shadow-sm'
@@ -321,10 +467,10 @@ export function MyBookingsPage() {
 
         {/* ── Card list ── */}
         <div className="space-y-3">
-          {tabLists[activeTab].length === 0 ? (
-            <EmptyState tab={activeTab} />
+          {displayed.length === 0 ? (
+            <EmptyState tab={activeTab} hasSearch={q.length > 0} />
           ) : (
-            tabLists[activeTab].map((b) => (
+            displayed.map((b) => (
               <BookingCard
                 key={b.id}
                 booking={b}
@@ -337,7 +483,7 @@ export function MyBookingsPage() {
         </div>
       </div>
 
-      {/* ── Ticket modal ── */}
+      {/* ── Ticket / QR modal ── */}
       <Dialog open={!!qrBooking} onOpenChange={() => setQrBooking(null)}>
         <DialogContent className="max-w-sm p-0">
           <DialogHeader className="px-6 pt-5">
@@ -370,7 +516,13 @@ export function MyBookingsPage() {
               </div>
               <div>
                 <p className="label text-[10px] uppercase tracking-wide text-muted-foreground">Amount Paid</p>
-                <p className="value font-semibold">{qrBooking && formatCurrency(qrBooking.eventPrice)}</p>
+                <p className="value font-semibold">
+                  {qrBooking
+                    ? qrBooking.eventPrice === 0
+                      ? 'Free'
+                      : formatCurrency(qrBooking.eventPrice)
+                    : ''}
+                </p>
               </div>
               {(qrBooking?.pointsEarned ?? 0) > 0 && (
                 <div>

@@ -30,7 +30,10 @@ import type { DashboardEvent, UpdateOrganizerProfileRequest } from '@/types'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { format, formatDistanceToNow } from 'date-fns'
 import {
+  Activity,
+  AlertTriangle,
   Banknote,
+  BarChart2,
   CalendarDays,
   CheckCircle2,
   CheckSquare,
@@ -44,13 +47,17 @@ import {
   Plus,
   Settings,
   Ticket,
+  TrendingUp,
   Users,
   XCircle,
+  Zap,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { Link, useNavigate } from 'react-router-dom'
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -82,12 +89,13 @@ const payoutSchema = z.object({
 type PayoutForm = z.infer<typeof payoutSchema>
 
 const payoutStatusMeta: Record<string, { icon: React.ElementType; className: string }> = {
-  Pending:  { icon: Clock,        className: 'border-amber-200 bg-amber-50 text-amber-700'     },
+  Pending:  { icon: Clock,        className: 'border-amber-200 bg-amber-50 text-amber-700'      },
   Approved: { icon: CheckCircle2, className: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
-  Rejected: { icon: XCircle,      className: 'border-red-200 bg-red-50 text-red-600'            },
+  Rejected: { icon: XCircle,      className: 'border-red-200 bg-red-50 text-red-600'             },
 }
 
-type DashboardView = 'overview' | 'events' | 'subscribers' | 'payouts'
+type DashboardView = 'overview' | 'events' | 'analytics' | 'subscribers' | 'payouts'
+type EventFilter = 'all' | 'upcoming' | 'past' | 'draft'
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -124,21 +132,24 @@ function StatCard({
   icon: Icon,
   label,
   value,
+  sub,
   color,
 }: {
   icon: React.ElementType
   label: string
   value: string | number
+  sub?: string
   color: string
 }) {
   return (
     <div className="rounded-2xl border border-stone-100 dark:border-stone-800 bg-white dark:bg-stone-900 p-5 shadow-sm">
       <div className="flex items-start justify-between">
-        <div>
+        <div className="min-w-0">
           <p className="text-xs font-medium text-stone-500 dark:text-stone-400">{label}</p>
-          <p className="mt-1.5 text-2xl font-bold text-stone-900 dark:text-stone-100">{value}</p>
+          <p className="mt-1.5 text-2xl font-bold text-stone-900 dark:text-stone-100 truncate">{value}</p>
+          {sub && <p className="mt-0.5 text-xs text-stone-400">{sub}</p>}
         </div>
-        <div className={`rounded-xl p-2.5 ${color}`}>
+        <div className={`rounded-xl p-2.5 shrink-0 ${color}`}>
           <Icon className="h-5 w-5 text-white" />
         </div>
       </div>
@@ -280,10 +291,11 @@ function EventCalendar({ events }: { events: DashboardEvent[] }) {
   )
 }
 
-// ── Expandable event row ───────────────────────────────────────────────────────
+// ── Expandable event row ──────────────────────────────────────────────────────
 
 function ExpandableEventRow({ event }: { event: DashboardEvent }) {
   const navigate = useNavigate()
+  const fillPct = event.capacity > 0 ? (event.confirmedBookings / event.capacity) * 100 : 0
 
   return (
     <TableRow
@@ -292,7 +304,17 @@ function ExpandableEventRow({ event }: { event: DashboardEvent }) {
     >
       <TableCell className="font-medium text-foreground">{event.title}</TableCell>
       <TableCell>{formatDate(event.startDate)}</TableCell>
-      <TableCell>{event.confirmedBookings}/{event.capacity}</TableCell>
+      <TableCell>
+        <div>
+          <span className="text-sm">{event.confirmedBookings}/{event.capacity}</span>
+          <div className="mt-1 h-1.5 w-16 rounded-full bg-stone-100 dark:bg-stone-800">
+            <div
+              className={`h-1.5 rounded-full transition-all ${fillPct >= 90 ? 'bg-rose-500' : 'bg-amber-500'}`}
+              style={{ width: `${Math.min(100, fillPct)}%` }}
+            />
+          </div>
+        </div>
+      </TableCell>
       <TableCell>{formatCurrency(event.revenue)}</TableCell>
       <TableCell><StatusBadge status={event.displayStatus} /></TableCell>
       <TableCell>
@@ -311,6 +333,7 @@ export function OrganizerDashboardPage() {
   const [profileOpen, setProfileOpen] = useState(false)
   const [payoutOpen, setPayoutOpen] = useState(false)
   const [subPage, setSubPage] = useState(1)
+  const [eventFilter, setEventFilter] = useState<EventFilter>('all')
 
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
@@ -357,12 +380,43 @@ export function OrganizerDashboardPage() {
     return <div className="py-16 text-center text-muted-foreground">Failed to load dashboard.</div>
   }
 
+  // ── Derived values ──────────────────────────────────────────────────────────
   const allEvents = [...dashboard.upcomingEvents, ...dashboard.recentEvents]
   const draftEvents = allEvents.filter((ev) => ev.displayStatus === 'Draft')
   const nonDraftUpcoming = dashboard.upcomingEvents.filter((ev) => ev.displayStatus !== 'Draft')
   const pendingPayoutsCount = payouts.filter((p) => p.status === 'Pending').length
 
-  // Monthly revenue aggregation (current calendar year)
+  const totalCapacity = allEvents.reduce((s, e) => s + e.capacity, 0)
+  const overallFillRate = totalCapacity > 0
+    ? (dashboard.totalAttendees / totalCapacity) * 100
+    : 0
+  const avgAttendanceRate = dashboard.totalAttendees > 0
+    ? (dashboard.totalCheckedIn / dashboard.totalAttendees) * 100
+    : 0
+  const revenuePerAttendee = dashboard.totalAttendees > 0
+    ? dashboard.totalRevenue / dashboard.totalAttendees
+    : 0
+
+  // Alerts: events starting within 24h OR ≥90% capacity
+  const now = new Date()
+  type AlertEntry = { type: 'startingSoon' | 'nearCapacity'; event: DashboardEvent; detail: string }
+  const alerts: AlertEntry[] = []
+  nonDraftUpcoming.forEach((ev) => {
+    const start = new Date(ev.startDate)
+    const hoursUntil = (start.getTime() - now.getTime()) / (1000 * 60 * 60)
+    const fillPct = ev.capacity > 0 ? (ev.confirmedBookings / ev.capacity) * 100 : 0
+    if (hoursUntil > 0 && hoursUntil <= 24) {
+      alerts.push({ type: 'startingSoon', event: ev, detail: `Starts in ${Math.ceil(hoursUntil)}h` })
+    } else if (fillPct >= 90 && ev.confirmedBookings < ev.capacity) {
+      alerts.push({
+        type: 'nearCapacity',
+        event: ev,
+        detail: `${ev.capacity - ev.confirmedBookings} spot${ev.capacity - ev.confirmedBookings !== 1 ? 's' : ''} left (${fillPct.toFixed(0)}% full)`,
+      })
+    }
+  })
+
+  // Monthly revenue (current year) — used in overview bar chart + analytics area chart
   const currentYear = new Date().getFullYear()
   const monthlyRevenue = MONTH_LABELS.map((month, i) => ({
     month,
@@ -374,8 +428,15 @@ export function OrganizerDashboardPage() {
       .reduce((sum, e) => sum + e.revenue, 0),
   }))
 
+  // Cumulative revenue for area chart
+  const cumulativeRevenueData = monthlyRevenue.reduce<
+    Array<{ month: string; revenue: number; cumulative: number }>
+  >((acc, { month, revenue }) => {
+    const prev = acc.length > 0 ? acc[acc.length - 1].cumulative : 0
+    return [...acc, { month, revenue, cumulative: prev + revenue }]
+  }, [])
+
   // Donut chart: checked-in / confirmed-pending / available
-  const totalCapacity = allEvents.reduce((s, e) => s + e.capacity, 0)
   const confirmedNotChecked = Math.max(0, dashboard.totalAttendees - dashboard.totalCheckedIn)
   const available = Math.max(0, totalCapacity - dashboard.totalAttendees)
   const donutData = [
@@ -384,21 +445,57 @@ export function OrganizerDashboardPage() {
     { name: 'Available',  value: available,                  color: isDark ? '#292524' : '#e7e5e4' },
   ].filter((d) => d.value > 0)
   const totalTickets = donutData.reduce((s, d) => s + d.value, 0)
-  const fillRate = totalCapacity > 0
-    ? ((dashboard.totalAttendees / totalCapacity) * 100).toFixed(0)
-    : '0'
+
+  // Top events by revenue
+  const topByRevenue = [...allEvents]
+    .filter((e) => e.revenue > 0)
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 6)
+    .map((e) => ({
+      name: e.title.length > 22 ? e.title.slice(0, 22) + '…' : e.title,
+      revenue: e.revenue,
+      eventId: e.eventId,
+    }))
+
+  // Attendance rate per event (for analytics tab)
+  const attendanceRateData = allEvents
+    .filter((e) => e.confirmedBookings > 0)
+    .map((e) => ({
+      name: e.title.length > 16 ? e.title.slice(0, 16) + '…' : e.title,
+      rate: Math.round((e.checkedIn / e.confirmedBookings) * 100),
+    }))
+    .sort((a, b) => b.rate - a.rate)
+    .slice(0, 7)
+
+  // Filtered events for Events tab
+  const pastEvents = dashboard.recentEvents.filter(
+    (e) => e.displayStatus === 'Completed' || e.displayStatus === 'Cancelled',
+  )
+  const filteredEvents: DashboardEvent[] = (() => {
+    switch (eventFilter) {
+      case 'upcoming': return nonDraftUpcoming
+      case 'past':     return pastEvents
+      case 'draft':    return draftEvents
+      default:         return allEvents.filter((e) => e.displayStatus !== 'Draft')
+    }
+  })()
+
+  const tooltipStyle = isDark
+    ? { borderRadius: '12px', border: '1px solid #292524', backgroundColor: '#1c1917', color: '#e7e5e4', fontSize: 12 }
+    : { borderRadius: '12px', border: '1px solid #e7e5e4', fontSize: 12 }
 
   const navItems: { key: DashboardView; icon: React.ElementType; label: string; badge?: number }[] = [
-    { key: 'overview',     icon: LayoutDashboard, label: 'Dashboard'   },
-    { key: 'events',       icon: CalendarDays,    label: 'Events'      },
-    { key: 'subscribers',  icon: Users,           label: 'Subscribers' },
-    { key: 'payouts',      icon: Banknote,        label: 'Payouts',     badge: pendingPayoutsCount  },
+    { key: 'overview',    icon: LayoutDashboard, label: 'Dashboard'   },
+    { key: 'events',      icon: CalendarDays,    label: 'Events'      },
+    { key: 'analytics',   icon: BarChart2,       label: 'Analytics'   },
+    { key: 'subscribers', icon: Users,           label: 'Subscribers' },
+    { key: 'payouts',     icon: Banknote,        label: 'Payouts',    badge: pendingPayoutsCount },
   ]
 
   return (
     <div className="flex h-[calc(100vh-56px)] overflow-hidden">
 
-      {/* ── Sidebar ────────────────────────────────────────────────── */}
+      {/* ── Sidebar ─────────────────────────────────────────────────────── */}
       <aside className="w-52 shrink-0 flex flex-col py-6 overflow-y-auto bg-card border-r border-border">
 
         {/* Logo */}
@@ -452,7 +549,7 @@ export function OrganizerDashboardPage() {
 
           <p className="px-1 mt-6 mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">General</p>
 
-          {/* Profile settings (opens dialog) */}
+          {/* Profile settings */}
           <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
             <DialogTrigger asChild>
               <button className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">
@@ -490,6 +587,7 @@ export function OrganizerDashboardPage() {
               </form>
             </DialogContent>
           </Dialog>
+
         </div>
 
         {/* Create event CTA */}
@@ -503,7 +601,7 @@ export function OrganizerDashboardPage() {
         </div>
       </aside>
 
-      {/* ── Main content ───────────────────────────────────────────── */}
+      {/* ── Main content ─────────────────────────────────────────────────── */}
       <div className="flex-1 bg-stone-50 dark:bg-stone-950 overflow-y-auto">
 
         {/* Content header */}
@@ -516,16 +614,107 @@ export function OrganizerDashboardPage() {
 
         <div className="p-6 space-y-6">
 
-          {/* ══ OVERVIEW ══════════════════════════════════════════════ */}
+          {/* ══ OVERVIEW ══════════════════════════════════════════════════ */}
           {view === 'overview' && (
             <>
-              {/* Stat cards */}
+              {/* 8 KPI cards: 2 rows × 4 cols */}
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                <StatCard icon={CalendarDays} label="Total Events"     value={dashboard.totalEvents}                     color="bg-stone-800 dark:bg-stone-700"   />
-                <StatCard icon={Ticket}        label="Tickets Sold"     value={dashboard.totalAttendees.toLocaleString()} color="bg-amber-500"   />
-                <StatCard icon={DollarSign}    label="Total Revenue"    value={formatCurrency(dashboard.totalRevenue)}    color="bg-emerald-600" />
-                <StatCard icon={CheckSquare}   label="Upcoming Events"  value={nonDraftUpcoming.length}                   color="bg-sky-500"     />
+                <StatCard
+                  icon={CalendarDays}
+                  label="Total Events"
+                  value={dashboard.totalEvents}
+                  sub={`${nonDraftUpcoming.length} upcoming`}
+                  color="bg-stone-800 dark:bg-stone-700"
+                />
+                <StatCard
+                  icon={Ticket}
+                  label="Tickets Sold"
+                  value={dashboard.totalAttendees.toLocaleString()}
+                  sub="confirmed bookings"
+                  color="bg-amber-500"
+                />
+                <StatCard
+                  icon={DollarSign}
+                  label="Total Revenue"
+                  value={formatCurrency(dashboard.totalRevenue)}
+                  sub={revenuePerAttendee > 0 ? `${formatCurrency(revenuePerAttendee)} / attendee` : undefined}
+                  color="bg-emerald-600"
+                />
+                <StatCard
+                  icon={CheckSquare}
+                  label="Checked In"
+                  value={dashboard.totalCheckedIn.toLocaleString()}
+                  sub={`${avgAttendanceRate.toFixed(0)}% attendance rate`}
+                  color="bg-sky-500"
+                />
+                <StatCard
+                  icon={TrendingUp}
+                  label="Attendance Rate"
+                  value={`${avgAttendanceRate.toFixed(1)}%`}
+                  sub="checked in / confirmed"
+                  color="bg-violet-500"
+                />
+                <StatCard
+                  icon={Zap}
+                  label="Fill Rate"
+                  value={`${overallFillRate.toFixed(1)}%`}
+                  sub="confirmed / total capacity"
+                  color="bg-orange-500"
+                />
+                <StatCard
+                  icon={Activity}
+                  label="Revenue / Attendee"
+                  value={revenuePerAttendee > 0 ? formatCurrency(revenuePerAttendee) : '—'}
+                  sub="avg per confirmed booking"
+                  color="bg-teal-500"
+                />
+                <StatCard
+                  icon={Users}
+                  label="Subscribers"
+                  value={subscribers.length.toLocaleString()}
+                  sub="follower count"
+                  color="bg-rose-500"
+                />
               </div>
+
+              {/* Alerts panel */}
+              {alerts.length > 0 && (
+                <div className="rounded-2xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/20 p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-rose-600 dark:text-rose-400" />
+                    <h3 className="text-sm font-semibold text-rose-800 dark:text-rose-300">
+                      {alerts.length} Alert{alerts.length > 1 ? 's' : ''} Requiring Attention
+                    </h3>
+                  </div>
+                  <div className="space-y-2">
+                    {alerts.map(({ type, event: ev, detail }, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center justify-between rounded-xl border border-rose-200 dark:border-rose-800 bg-white dark:bg-stone-900 px-3 py-2.5"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className={`h-2 w-2 rounded-full ${type === 'startingSoon' ? 'bg-amber-500' : 'bg-rose-500'}`} />
+                          <div>
+                            <p className="text-xs font-semibold text-stone-800 dark:text-stone-100">{ev.title}</p>
+                            <p className="text-xs text-stone-500">{detail}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] ${type === 'startingSoon' ? 'border-amber-300 text-amber-700 dark:text-amber-400' : 'border-rose-300 text-rose-700 dark:text-rose-400'}`}
+                          >
+                            {type === 'startingSoon' ? 'Starting Soon' : 'Near Capacity'}
+                          </Badge>
+                          <Link to={`/events/${ev.eventId}/insights`}>
+                            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs">View</Button>
+                          </Link>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Draft events banner */}
               {draftEvents.length > 0 && (
@@ -574,10 +763,10 @@ export function OrganizerDashboardPage() {
                       <p className="text-xs text-stone-400 mt-0.5">Monthly revenue — {currentYear}</p>
                     </div>
                     <button
-                      onClick={() => setView('events')}
+                      onClick={() => setView('analytics')}
                       className="text-xs font-medium text-amber-600 hover:underline"
                     >
-                      see details
+                      Full analytics →
                     </button>
                   </div>
                   <ResponsiveContainer width="100%" height={200}>
@@ -599,10 +788,7 @@ export function OrganizerDashboardPage() {
                       />
                       <Tooltip
                         formatter={(v: number) => [formatCurrency(v), 'Revenue']}
-                        contentStyle={isDark
-                          ? { borderRadius: '12px', border: '1px solid #292524', backgroundColor: '#1c1917', color: '#e7e5e4', fontSize: 12 }
-                          : { borderRadius: '12px', border: '1px solid #e7e5e4', fontSize: 12 }
-                        }
+                        contentStyle={tooltipStyle}
                         cursor={{ fill: isDark ? 'rgba(255,255,255,0.04)' : '#f5f5f4' }}
                       />
                       <Bar dataKey="revenue" fill={isDark ? '#f59e0b' : '#1c1917'} radius={[6, 6, 0, 0]} />
@@ -663,7 +849,7 @@ export function OrganizerDashboardPage() {
                         </div>
                         <div className="flex justify-between">
                           <span className="text-stone-400">Fill Rate</span>
-                          <span className="font-semibold text-stone-800 dark:text-stone-200">{fillRate}%</span>
+                          <span className="font-semibold text-stone-800 dark:text-stone-200">{overallFillRate.toFixed(0)}%</span>
                         </div>
                       </div>
                     </>
@@ -675,7 +861,7 @@ export function OrganizerDashboardPage() {
                 </div>
               </div>
 
-              {/* Upcoming event cards + Calendar */}
+              {/* Upcoming events + Calendar */}
               <div className="grid grid-cols-3 gap-5">
 
                 {/* Upcoming events */}
@@ -713,112 +899,403 @@ export function OrganizerDashboardPage() {
                   <EventCalendar events={allEvents} />
                 </div>
               </div>
+
+              {/* Activity feed + Top events by revenue */}
+              <div className="grid grid-cols-3 gap-5">
+
+                {/* Recent activity feed */}
+                <div className="col-span-2 rounded-2xl border border-stone-100 dark:border-stone-800 bg-white dark:bg-stone-900 shadow-sm">
+                  <div className="flex items-center justify-between border-b border-stone-100 dark:border-stone-800 px-5 py-4">
+                    <div>
+                      <h2 className="font-semibold text-stone-900 dark:text-stone-100">Recent Activity</h2>
+                      <p className="mt-0.5 text-xs text-stone-400">Latest event performance snapshot</p>
+                    </div>
+                    <button
+                      onClick={() => setView('analytics')}
+                      className="text-xs font-medium text-amber-600 hover:underline"
+                    >
+                      View analytics →
+                    </button>
+                  </div>
+                  {allEvents.length === 0 ? (
+                    <div className="flex h-32 items-center justify-center text-sm text-stone-400">
+                      No events yet.
+                    </div>
+                  ) : (
+                    <div>
+                      {[...allEvents]
+                        .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())
+                        .slice(0, 6)
+                        .map((ev, i, arr) => {
+                          const fillPct = ev.capacity > 0 ? (ev.confirmedBookings / ev.capacity) * 100 : 0
+                          const attendRate = ev.confirmedBookings > 0 ? (ev.checkedIn / ev.confirmedBookings) * 100 : 0
+                          return (
+                            <div
+                              key={ev.eventId}
+                              className={`flex items-center gap-4 px-5 py-3.5 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors cursor-pointer ${i < arr.length - 1 ? 'border-b border-stone-100 dark:border-stone-800' : ''}`}
+                              onClick={() => navigate(`/events/${ev.eventId}/insights`)}
+                            >
+                              <div className="h-9 w-9 rounded-xl bg-stone-100 dark:bg-stone-800 flex items-center justify-center shrink-0 overflow-hidden">
+                                {ev.imageUrl
+                                  ? <img src={ev.imageUrl} alt="" className="h-full w-full object-cover" />
+                                  : <Ticket className="h-4 w-4 text-stone-400" />
+                                }
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-stone-800 dark:text-stone-100 truncate">{ev.title}</p>
+                                <p className="text-xs text-stone-400 mt-0.5">
+                                  {format(new Date(ev.startDate), 'MMM d')} · {ev.confirmedBookings} confirmed
+                                  {ev.checkedIn > 0 && ` · ${ev.checkedIn} checked in`}
+                                  {ev.revenue > 0 && ` · ${formatCurrency(ev.revenue)}`}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-3 shrink-0">
+                                <div className="text-right">
+                                  <p className="text-xs font-semibold text-stone-700 dark:text-stone-300">{fillPct.toFixed(0)}%</p>
+                                  <p className="text-[10px] text-stone-400">fill</p>
+                                </div>
+                                {ev.checkedIn > 0 && (
+                                  <div className="text-right">
+                                    <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">{attendRate.toFixed(0)}%</p>
+                                    <p className="text-[10px] text-stone-400">attend</p>
+                                  </div>
+                                )}
+                                <StatusBadge status={ev.displayStatus} />
+                              </div>
+                            </div>
+                          )
+                        })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Top events by revenue */}
+                <div className="rounded-2xl border border-stone-100 dark:border-stone-800 bg-white dark:bg-stone-900 shadow-sm">
+                  <div className="border-b border-stone-100 dark:border-stone-800 px-5 py-4">
+                    <h2 className="font-semibold text-stone-900 dark:text-stone-100">Top by Revenue</h2>
+                    <p className="mt-0.5 text-xs text-stone-400">Highest earning events</p>
+                  </div>
+                  {topByRevenue.length === 0 ? (
+                    <div className="flex h-32 items-center justify-center text-sm text-stone-400">
+                      No revenue data yet
+                    </div>
+                  ) : (
+                    <div>
+                      {topByRevenue.map((ev, i) => {
+                        const maxRevenue = topByRevenue[0].revenue
+                        const barWidth = maxRevenue > 0 ? (ev.revenue / maxRevenue) * 100 : 0
+                        return (
+                          <Link
+                            key={ev.eventId}
+                            to={`/events/${ev.eventId}/insights`}
+                            className="block px-5 py-3 hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-medium text-stone-700 dark:text-stone-300 truncate max-w-[140px]">
+                                {i + 1}. {ev.name}
+                              </span>
+                              <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 shrink-0">
+                                {formatCurrency(ev.revenue)}
+                              </span>
+                            </div>
+                            <div className="h-1.5 w-full rounded-full bg-stone-100 dark:bg-stone-800">
+                              <div
+                                className="h-1.5 rounded-full bg-emerald-500 transition-all"
+                                style={{ width: `${barWidth}%` }}
+                              />
+                            </div>
+                          </Link>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
             </>
           )}
 
-          {/* ══ EVENTS ════════════════════════════════════════════════ */}
+          {/* ══ EVENTS ════════════════════════════════════════════════════ */}
           {view === 'events' && (
-            <div className="space-y-6">
-              {draftEvents.length > 0 && (
-                <div>
-                  <h2 className="mb-3 font-semibold text-stone-900 dark:text-stone-100">
-                    Drafts ({draftEvents.length})
-                  </h2>
-                  <div className="overflow-hidden rounded-2xl border border-stone-100 dark:border-stone-800 bg-white dark:bg-stone-900 shadow-sm">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Event</TableHead>
-                          <TableHead>Start Date</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {draftEvents.map((ev) => (
+            <div className="space-y-5">
+
+              {/* Filter tabs */}
+              <div className="flex items-center gap-1 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 p-1 w-fit shadow-sm">
+                {([
+                  ['all',      'All'],
+                  ['upcoming', 'Upcoming'],
+                  ['past',     'Past'],
+                  ['draft',    'Drafts'],
+                ] as const).map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setEventFilter(key)}
+                    className={`rounded-lg px-4 py-1.5 text-sm font-medium transition-colors
+                      ${eventFilter === key
+                        ? 'bg-amber-500 text-white'
+                        : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
+                      }`}
+                  >
+                    {label}
+                    {key === 'draft' && draftEvents.length > 0 && (
+                      <span className={`ml-1.5 rounded-full px-1.5 text-[10px] font-bold ${eventFilter === key ? 'bg-white/20' : 'bg-stone-100 dark:bg-stone-800'}`}>
+                        {draftEvents.length}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* Events table */}
+              <div className="overflow-hidden rounded-2xl border border-stone-100 dark:border-stone-800 bg-white dark:bg-stone-900 shadow-sm">
+                {filteredEvents.length === 0 ? (
+                  <div className="py-12 text-center">
+                    <p className="text-muted-foreground text-sm">No events in this view.</p>
+                    {eventFilter === 'upcoming' && (
+                      <Link to="/events/create" className="mt-2 inline-block text-sm text-amber-600 hover:underline">
+                        Create your first event →
+                      </Link>
+                    )}
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Event</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Bookings / Capacity</TableHead>
+                        <TableHead>Revenue</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredEvents.map((ev) =>
+                        ev.displayStatus === 'Draft' ? (
                           <TableRow key={ev.eventId}>
-                            <TableCell className="font-medium">{ev.title}</TableCell>
+                            <TableCell className="font-medium text-foreground">{ev.title}</TableCell>
                             <TableCell className="text-muted-foreground">{formatDate(ev.startDate)}</TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex items-center justify-end gap-2">
+                            <TableCell className="text-muted-foreground">—</TableCell>
+                            <TableCell className="text-muted-foreground">—</TableCell>
+                            <TableCell><StatusBadge status={ev.displayStatus} /></TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1">
                                 <Link to={`/events/${ev.eventId}/edit`}>
-                                  <Button size="sm" variant="outline" className="gap-1.5">
-                                    <Pencil className="h-3.5 w-3.5" />Edit
+                                  <Button size="sm" variant="outline" className="gap-1.5 h-7 text-xs">
+                                    <Pencil className="h-3 w-3" />Edit
                                   </Button>
                                 </Link>
                                 <Link to={`/events/${ev.eventId}`}>
-                                  <Button size="sm" variant="ghost">View</Button>
+                                  <Button size="sm" variant="ghost" className="h-7 text-xs">View</Button>
                                 </Link>
                               </div>
                             </TableCell>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <h2 className="mb-3 font-semibold text-stone-900 dark:text-stone-100">
-                  Upcoming ({nonDraftUpcoming.length})
-                </h2>
-                <div className="overflow-hidden rounded-2xl border border-stone-100 dark:border-stone-800 bg-white dark:bg-stone-900 shadow-sm">
-                  {nonDraftUpcoming.length === 0 ? (
-                    <p className="py-10 text-center text-muted-foreground">No upcoming events.</p>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Event</TableHead>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Bookings</TableHead>
-                          <TableHead>Revenue</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead />
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {nonDraftUpcoming.map((ev) => (
+                        ) : (
                           <ExpandableEventRow key={ev.eventId} event={ev} />
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <h2 className="mb-3 font-semibold text-stone-900 dark:text-stone-100">
-                  Recent ({dashboard.recentEvents.length})
-                </h2>
-                <div className="overflow-hidden rounded-2xl border border-stone-100 dark:border-stone-800 bg-white dark:bg-stone-900 shadow-sm">
-                  {dashboard.recentEvents.length === 0 ? (
-                    <p className="py-10 text-center text-muted-foreground">No recent events.</p>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Event</TableHead>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Bookings</TableHead>
-                          <TableHead>Revenue</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead />
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {dashboard.recentEvents.map((ev) => (
-                          <ExpandableEventRow key={ev.eventId} event={ev} />
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
-                </div>
+                        )
+                      )}
+                    </TableBody>
+                  </Table>
+                )}
               </div>
             </div>
           )}
 
-          {/* ══ SUBSCRIBERS ═══════════════════════════════════════════ */}
+          {/* ══ ANALYTICS ════════════════════════════════════════════════ */}
+          {view === 'analytics' && (
+            <div className="space-y-5">
+
+              {/* Summary KPIs */}
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <StatCard icon={DollarSign}   label="Total Revenue"       value={formatCurrency(dashboard.totalRevenue)}        color="bg-emerald-600" />
+                <StatCard icon={Ticket}       label="Total Tickets Sold"  value={dashboard.totalAttendees.toLocaleString()}      color="bg-amber-500"  />
+                <StatCard icon={TrendingUp}   label="Avg Attendance Rate" value={`${avgAttendanceRate.toFixed(1)}%`}             color="bg-violet-500" />
+                <StatCard icon={Zap}          label="Overall Fill Rate"   value={`${overallFillRate.toFixed(1)}%`}               color="bg-orange-500" />
+              </div>
+
+              {/* Cumulative revenue area chart */}
+              <div className="rounded-2xl border border-stone-100 dark:border-stone-800 bg-white dark:bg-stone-900 p-5 shadow-sm">
+                <div className="mb-4">
+                  <h2 className="font-semibold text-stone-900 dark:text-stone-100">Cumulative Revenue Trend</h2>
+                  <p className="mt-0.5 text-xs text-stone-400">Monthly revenue + running total — {currentYear}</p>
+                </div>
+                <ResponsiveContainer width="100%" height={220}>
+                  <AreaChart data={cumulativeRevenueData} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor="#f59e0b" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}    />
+                      </linearGradient>
+                      <linearGradient id="cumGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor={isDark ? '#6366f1' : '#1c1917'} stopOpacity={0.2} />
+                        <stop offset="95%" stopColor={isDark ? '#6366f1' : '#1c1917'} stopOpacity={0}  />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#292524' : '#f5f5f4'} vertical={false} />
+                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: isDark ? '#a8a29e' : '#78716c' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: isDark ? '#a8a29e' : '#78716c' }} axisLine={false} tickLine={false} tickFormatter={(v: number) => v >= 1000 ? `$${(v/1000).toFixed(0)}k` : `$${v}`} />
+                    <Tooltip
+                      formatter={(v: number, name: string) => [formatCurrency(v), name === 'revenue' ? 'Monthly' : 'Cumulative']}
+                      contentStyle={tooltipStyle}
+                      cursor={{ stroke: isDark ? '#44403c' : '#e7e5e4' }}
+                    />
+                    <Area type="monotone" dataKey="revenue"    stroke="#f59e0b" strokeWidth={2} fill="url(#revGrad)" dot={false} />
+                    <Area type="monotone" dataKey="cumulative" stroke={isDark ? '#818cf8' : '#1c1917'} strokeWidth={2} fill="url(#cumGrad)" dot={false} strokeDasharray="4 2" />
+                  </AreaChart>
+                </ResponsiveContainer>
+                <div className="mt-2 flex items-center gap-4 text-xs text-stone-400">
+                  <span className="flex items-center gap-1.5">
+                    <span className="inline-block h-2.5 w-5 rounded-full bg-amber-500 opacity-80" />
+                    Monthly revenue
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="inline-block h-2.5 w-5 rounded-full bg-indigo-400 opacity-80" />
+                    Cumulative
+                  </span>
+                </div>
+              </div>
+
+              {/* Top events + Attendance rate side by side */}
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+
+                {/* Top events by revenue — horizontal bar */}
+                <div className="rounded-2xl border border-stone-100 dark:border-stone-800 bg-white dark:bg-stone-900 p-5 shadow-sm">
+                  <h2 className="font-semibold text-stone-900 dark:text-stone-100 mb-1">Top Events by Revenue</h2>
+                  <p className="text-xs text-stone-400 mb-4">Best performing events</p>
+                  {topByRevenue.length === 0 ? (
+                    <div className="flex h-36 items-center justify-center text-sm text-stone-400">No revenue data</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart
+                        layout="vertical"
+                        data={topByRevenue}
+                        margin={{ top: 0, right: 60, left: 0, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#292524' : '#f5f5f4'} horizontal={false} />
+                        <XAxis
+                          type="number"
+                          tick={{ fontSize: 10, fill: isDark ? '#a8a29e' : '#78716c' }}
+                          axisLine={false}
+                          tickLine={false}
+                          tickFormatter={(v: number) => v >= 1000 ? `$${(v/1000).toFixed(0)}k` : `$${v}`}
+                        />
+                        <YAxis
+                          type="category"
+                          dataKey="name"
+                          tick={{ fontSize: 10, fill: isDark ? '#a8a29e' : '#78716c' }}
+                          axisLine={false}
+                          tickLine={false}
+                          width={110}
+                        />
+                        <Tooltip
+                          formatter={(v: number) => [formatCurrency(v), 'Revenue']}
+                          contentStyle={tooltipStyle}
+                          cursor={{ fill: isDark ? 'rgba(255,255,255,0.04)' : '#f5f5f4' }}
+                        />
+                        <Bar dataKey="revenue" fill={isDark ? '#10b981' : '#059669'} radius={[0, 6, 6, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+
+                {/* Attendance rate per event */}
+                <div className="rounded-2xl border border-stone-100 dark:border-stone-800 bg-white dark:bg-stone-900 p-5 shadow-sm">
+                  <h2 className="font-semibold text-stone-900 dark:text-stone-100 mb-1">Attendance Rate by Event</h2>
+                  <p className="text-xs text-stone-400 mb-4">Check-in rate (checked in / confirmed)</p>
+                  {attendanceRateData.length === 0 ? (
+                    <div className="flex h-36 items-center justify-center text-sm text-stone-400">No check-in data yet</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={attendanceRateData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#292524' : '#f5f5f4'} vertical={false} />
+                        <XAxis dataKey="name" tick={{ fontSize: 10, fill: isDark ? '#a8a29e' : '#78716c' }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fontSize: 10, fill: isDark ? '#a8a29e' : '#78716c' }} axisLine={false} tickLine={false} unit="%" domain={[0, 100]} />
+                        <Tooltip
+                          formatter={(v: number) => [`${v}%`, 'Attendance Rate']}
+                          contentStyle={tooltipStyle}
+                          cursor={{ fill: isDark ? 'rgba(255,255,255,0.04)' : '#f5f5f4' }}
+                        />
+                        <Bar dataKey="rate" fill={isDark ? '#f59e0b' : '#1c1917'} radius={[6, 6, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </div>
+
+              {/* Full performance table */}
+              <div className="overflow-hidden rounded-2xl border border-stone-100 dark:border-stone-800 bg-white dark:bg-stone-900 shadow-sm">
+                <div className="border-b border-stone-100 dark:border-stone-800 px-5 py-4">
+                  <h2 className="font-semibold text-stone-900 dark:text-stone-100">Event Performance</h2>
+                  <p className="mt-0.5 text-xs text-stone-400">All events with key metrics — click a row to view full insights</p>
+                </div>
+                {allEvents.filter((e) => e.displayStatus !== 'Draft').length === 0 ? (
+                  <div className="py-10 text-center text-muted-foreground text-sm">No published events yet.</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Event</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Revenue</TableHead>
+                        <TableHead>Confirmed</TableHead>
+                        <TableHead>Checked In</TableHead>
+                        <TableHead>Fill %</TableHead>
+                        <TableHead>Attend %</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {allEvents
+                        .filter((e) => e.displayStatus !== 'Draft')
+                        .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())
+                        .map((ev) => {
+                          const fill = ev.capacity > 0 ? (ev.confirmedBookings / ev.capacity) * 100 : 0
+                          const attend = ev.confirmedBookings > 0 ? (ev.checkedIn / ev.confirmedBookings) * 100 : null
+                          return (
+                            <TableRow
+                              key={ev.eventId}
+                              className="cursor-pointer hover:bg-muted/50"
+                              onClick={() => navigate(`/events/${ev.eventId}/insights`)}
+                            >
+                              <TableCell className="font-medium max-w-[200px] truncate">{ev.title}</TableCell>
+                              <TableCell className="text-muted-foreground text-xs">{formatDate(ev.startDate)}</TableCell>
+                              <TableCell className="font-medium text-emerald-600 dark:text-emerald-400">
+                                {ev.revenue > 0 ? formatCurrency(ev.revenue) : <span className="text-stone-400">—</span>}
+                              </TableCell>
+                              <TableCell>{ev.confirmedBookings}</TableCell>
+                              <TableCell>{ev.checkedIn > 0 ? ev.checkedIn : <span className="text-stone-400">—</span>}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <div className="w-12 h-1.5 rounded-full bg-stone-100 dark:bg-stone-800">
+                                    <div
+                                      className={`h-1.5 rounded-full ${fill >= 90 ? 'bg-rose-500' : 'bg-amber-500'}`}
+                                      style={{ width: `${Math.min(100, fill)}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-xs font-medium text-stone-600 dark:text-stone-400">{fill.toFixed(0)}%</span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                {attend !== null ? (
+                                  <span className={`text-xs font-medium ${attend >= 70 ? 'text-emerald-600 dark:text-emerald-400' : 'text-stone-500'}`}>
+                                    {attend.toFixed(0)}%
+                                  </span>
+                                ) : (
+                                  <span className="text-stone-400 text-xs">—</span>
+                                )}
+                              </TableCell>
+                              <TableCell><StatusBadge status={ev.displayStatus} /></TableCell>
+                            </TableRow>
+                          )
+                        })}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ══ SUBSCRIBERS ═══════════════════════════════════════════════ */}
           {view === 'subscribers' && (() => {
             const SUB_PAGE_SIZE = 10
             const totalPages = Math.max(1, Math.ceil(subscribers.length / SUB_PAGE_SIZE))
@@ -898,7 +1375,7 @@ export function OrganizerDashboardPage() {
             )
           })()}
 
-          {/* ══ PAYOUTS ═══════════════════════════════════════════════ */}
+          {/* ══ PAYOUTS ═══════════════════════════════════════════════════ */}
           {view === 'payouts' && (
             <div className="space-y-4">
               <div className="flex items-center justify-between rounded-2xl border border-stone-100 dark:border-stone-800 bg-white dark:bg-stone-900 p-5 shadow-sm">
@@ -951,42 +1428,38 @@ export function OrganizerDashboardPage() {
               </div>
 
               {payouts.length === 0 ? (
-                <div className="rounded-2xl border border-stone-100 dark:border-stone-800 bg-white dark:bg-stone-900 py-12 text-center text-muted-foreground">
+                <div className="rounded-2xl border border-stone-100 dark:border-stone-800 bg-white dark:bg-stone-900 py-10 text-center text-muted-foreground shadow-sm">
                   No payout requests yet.
                 </div>
               ) : (
-                <div className="overflow-hidden rounded-2xl border border-stone-100 dark:border-stone-800 bg-white dark:bg-stone-900 shadow-sm">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Amount</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Requested</TableHead>
-                        <TableHead>Notes</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {payouts.map((p) => {
-                        const meta = payoutStatusMeta[p.status] ?? payoutStatusMeta.Pending
-                        const Icon = meta.icon
-                        return (
-                          <TableRow key={p.id}>
-                            <TableCell className="font-semibold">{formatCurrency(p.amount)}</TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className={`gap-1 ${meta.className}`}>
-                                <Icon className="h-3 w-3" />
-                                {p.status}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">
-                              {formatDistanceToNow(new Date(p.requestedAt), { addSuffix: true })}
-                            </TableCell>
-                            <TableCell className="text-sm text-muted-foreground">{p.adminNotes ?? '—'}</TableCell>
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
+                <div className="space-y-3">
+                  {payouts.map((p) => {
+                    const meta = payoutStatusMeta[p.status] ?? payoutStatusMeta.Pending
+                    const StatusIcon = meta.icon
+                    return (
+                      <div
+                        key={p.id}
+                        className={`flex items-start justify-between rounded-2xl border p-4 shadow-sm ${meta.className}`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <StatusIcon className="mt-0.5 h-4 w-4 shrink-0" />
+                          <div>
+                            <p className="font-semibold">{formatCurrency(p.amount)}</p>
+                            <p className="mt-0.5 text-xs opacity-70">{p.bankDetails}</p>
+                            {p.adminNotes && (
+                              <p className="mt-1 text-xs italic opacity-70">Note: {p.adminNotes}</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-xs font-medium">{p.status}</p>
+                          <p className="mt-0.5 text-xs opacity-60">
+                            {formatDistanceToNow(new Date(p.requestedAt), { addSuffix: true })}
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>
