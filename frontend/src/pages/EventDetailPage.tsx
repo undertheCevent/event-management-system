@@ -160,6 +160,8 @@ export function EventDetailPage() {
   const [cancelEventConfirm, setCancelEventConfirm] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [postponeOpen, setPostponeOpen] = useState(false)
+  const [paymentOpen, setPaymentOpen] = useState(false)
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false)
   const [replyTarget, setReplyTarget] = useState<number | null>(null)
   const [replyText, setReplyText] = useState('')
 
@@ -345,7 +347,7 @@ export function EventDetailPage() {
             ) : isBookable ? (
               <Button
                 className="w-full"
-                onClick={() => createBooking.mutate(eventId)}
+                onClick={() => event.price > 0 ? setPaymentOpen(true) : createBooking.mutate(eventId)}
                 disabled={createBooking.isPending}
               >
                 {createBooking.isPending
@@ -1130,6 +1132,76 @@ export function EventDetailPage() {
         }
         loading={deleteEvent.isPending}
       />
+
+      {/* ── Mock Payment Dialog ──────────────────────────────────────── */}
+      <Dialog open={paymentOpen} onOpenChange={(o) => { if (!isProcessingPayment) setPaymentOpen(o) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Complete Your Booking</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-5 py-2">
+            {/* Order summary */}
+            <div className="rounded-xl border border-border bg-muted/40 p-4">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Order Summary</p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-foreground">{event.title}</p>
+                <p className="text-sm font-bold text-foreground">{formatCurrency(event.price)}</p>
+              </div>
+              <div className="mt-2 flex items-center justify-between border-t border-border pt-2 text-xs text-muted-foreground">
+                <span>1 × ticket</span>
+                <span>Total: <span className="font-semibold text-foreground">{formatCurrency(event.price)}</span></span>
+              </div>
+            </div>
+
+            {/* Mock card fields */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Payment Details</p>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Card Number</Label>
+                <Input defaultValue="4242 4242 4242 4242" className="font-mono text-sm" readOnly />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Expiry</Label>
+                  <Input defaultValue="12 / 28" className="font-mono text-sm" readOnly />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">CVC</Label>
+                  <Input defaultValue="123" className="font-mono text-sm" readOnly />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Name on Card</Label>
+                <Input defaultValue="Test User" className="text-sm" readOnly />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                This is a simulated payment — no real charge will occur.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPaymentOpen(false)}
+              disabled={isProcessingPayment}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={isProcessingPayment}
+              onClick={async () => {
+                setIsProcessingPayment(true)
+                await new Promise((r) => setTimeout(r, 1200))
+                setIsProcessingPayment(false)
+                setPaymentOpen(false)
+                createBooking.mutate(eventId)
+              }}
+            >
+              {isProcessingPayment ? 'Processing…' : `Pay ${formatCurrency(event.price)}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={postponeOpen} onOpenChange={setPostponeOpen}>
         <DialogContent>
