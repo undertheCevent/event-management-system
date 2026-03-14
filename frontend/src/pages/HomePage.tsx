@@ -162,7 +162,7 @@ export function HomePage() {
             alt={featuredEvent.title}
             width={1280}
             height={720}
-            fetchPriority="high"
+            fetchpriority="high"
             className="absolute inset-0 h-full w-full object-cover object-center"
           />
         ) : (
