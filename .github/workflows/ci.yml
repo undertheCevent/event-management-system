@@ -17,8 +17,11 @@ jobs:
     name: Backend — build & test
     runs-on: ubuntu-latest
 
-    # Only run when backend files (or the workflow itself) changed
-    # On PRs this scopes the job; on push to main it always runs
+    # dorny/test-reporter needs checks:write to post PR annotations
+    permissions:
+      contents: read
+      checks: write
+
     defaults:
       run:
         working-directory: backend
