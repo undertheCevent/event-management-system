@@ -1,0 +1,32 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "Microsoft.EntityFrameworkCore": "Warning"
+    },
+    "AWS": {
+      "Region": "ap-southeast-2",
+      "LogGroup": "/event-hub/api",
+      "LogStreamNameSuffix": "{MachineName}",
+      "FlushTimeout": 30,
+      "LogQueueSize": 10000
+    }
+  },
+  "AllowedHosts": "*",
+  "ConnectionStrings": {
+    "DefaultConnection": "Host=db.<project-ref>.supabase.co;Port=5432;Database=postgres;Username=postgres;Password=<your-password>;SSL Mode=Require;Trust Server Certificate=true"
+  },
+  "Cognito": {
+    "Region": "ap-southeast-2",
+    "UserPoolId": "<cognito-user-pool-id>",
+    "ClientId": "<cognito-client-id>"
+  },
+  "Storage": {
+    "Provider": "S3",
+    "S3": {
+      "BucketName": "<your-s3-bucket-name>",
+      "Region": "ap-southeast-2"
+    }
+  }
+}

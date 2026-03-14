@@ -15,9 +15,9 @@ obj/
 .vscode/
 *.user
 
-# dotnet secrets
+# dotnet secrets — all environment-specific appsettings are gitignored.
+# Copy appsettings.Development.json.example → appsettings.Development.json and fill in real values.
 appsettings.*.json
-!appsettings.Development.json
 
 # NuGet
 *.nupkg

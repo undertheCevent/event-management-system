@@ -1,0 +1,24 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "Microsoft.EntityFrameworkCore": "Information"
+    }
+  },
+  "ConnectionStrings": {
+    "DefaultConnection": "User Id=postgres.<project-ref>;Password=<your-password>;Server=<region>.pooler.supabase.com;Port=5432;Database=postgres;SSL Mode=Require;Trust Server Certificate=true"
+  },
+  "Cognito": {
+    "Region": "ap-southeast-2",
+    "UserPoolId": "<cognito-user-pool-id>",
+    "ClientId": "<cognito-client-id>"
+  },
+  "Storage": {
+    "Provider": "S3",
+    "S3": {
+      "BucketName": "<your-s3-bucket-name>",
+      "Region": "ap-southeast-2"
+    }
+  }
+}
