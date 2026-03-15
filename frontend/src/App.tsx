@@ -20,6 +20,11 @@ export default function App() {
   // fetch the app-specific profile (role, loyalty points, etc.) from our backend.
   // setHydrated() is always called so ProtectedRoute knows when it's safe to redirect.
   useEffect(() => {
+    // `cancelled` prevents React StrictMode's double-invocation from firing two
+    // simultaneous /api/auth/me requests.  The cleanup sets it to true so the
+    // first mount's promise chain bails out before reaching fetchAppProfile().
+    let cancelled = false
+
     // Dynamic-import Amplify so the aws-amplify ecosystem is excluded from
     // the critical-path bundle.  Amplify.configure() must run before the
     // first fetchAuthSession() call — both happen in this chain, so ordering
@@ -28,6 +33,7 @@ export default function App() {
       .then(() => import('aws-amplify/auth'))
       .then(({ fetchAuthSession }) => fetchAuthSession())
       .then((session) => {
+        if (cancelled) return
         if (session.tokens?.idToken) {
           return fetchAppProfile()
         }
@@ -35,9 +41,11 @@ export default function App() {
         setUser(null)
       })
       .then((profile) => {
+        if (cancelled) return
         if (profile) setUser(profile)
       })
       .catch((err: unknown) => {
+        if (cancelled) return
         // Cognito-specific "no session" errors mean the user is genuinely logged out.
         // Anything else (network blip, token-rotation conflict from rapid reloads) is
         // transient — keep the cached localStorage profile so the user stays logged in.
@@ -48,8 +56,10 @@ export default function App() {
         if (isDefinitelyLoggedOut) setUser(null)
       })
       .finally(() => {
-        setHydrated()
+        if (!cancelled) setHydrated()
       })
+
+    return () => { cancelled = true }
   }, [setUser, setHydrated])
 
   return (
