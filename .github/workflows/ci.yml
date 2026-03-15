@@ -112,3 +112,47 @@ jobs:
           # Treat TS errors as build failures (already guaranteed by tsc step,
           # but belt-and-suspenders for the vite pass)
           CI: true
+
+  # ── Lighthouse CI ──────────────────────────────────────────────────────
+  lighthouse:
+    name: Lighthouse CI
+    runs-on: ubuntu-latest
+    needs: frontend
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+        env:
+          CI: true
+          # Public pages (/ and /events) are tested — auth env vars are not
+          # required for the build but Amplify.configure needs non-empty strings
+          VITE_COGNITO_USER_POOL_ID: placeholder
+          VITE_COGNITO_CLIENT_ID: placeholder
+          VITE_COGNITO_DOMAIN: placeholder
+
+      - name: Run Lighthouse CI
+        run: npm run lhci
+        env:
+          # Optional: connect the Lighthouse CI GitHub App for PR score diffs
+          # https://github.com/apps/lighthouse-ci
+          LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
