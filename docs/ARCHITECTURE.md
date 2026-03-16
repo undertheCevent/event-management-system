@@ -38,8 +38,7 @@ For detailed documentation see:
 | ORM | Entity Framework Core 9 | Code-first migrations, LINQ queries |
 | Database | PostgreSQL 15 (Supabase) | Managed cloud PostgreSQL via Supavisor session pooler |
 | Object storage | AWS S3 + AWS SDK for .NET | Durable, scalable storage for uploads and media |
-| Auth | JWT Bearer (HS256) | Stateless, standard, easy to validate |
-| Password hashing | BCrypt.Net-Next | Adaptive cost, industry standard |
+| Auth | AWS Cognito + JWT Bearer (RS256) | Managed identity; backend validates Cognito-issued RS256 tokens |
 | Testing | xUnit + `WebApplicationFactory` | In-process integration testing with real HTTP |
 | Test database | In-memory SQLite | Isolated, fast, schema-faithful (tests only) |
 
@@ -49,9 +48,10 @@ For detailed documentation see:
 |---|---|---|
 | Build tool | Vite 6 | Fast HMR, path alias, dev proxy |
 | Framework | React 18 + TypeScript (strict) | Component model, type safety |
-| Routing | React Router DOM v6 | Declarative nested routes, `createBrowserRouter` |
+| Routing | React Router DOM v6 | Declarative nested routes, `createBrowserRouter`; all pages lazy-loaded |
 | Server state | TanStack Query v5 | Caching, background sync, optimistic updates |
 | Client state | Zustand v5 | Minimal boilerplate; `getState()` accessible outside React |
+| Auth (cloud) | AWS Amplify | Cognito session management; lazy-loaded off the critical path |
 | UI components | shadcn/ui + Radix UI | Accessible, unstyled primitives + Tailwind CSS |
 | Forms | react-hook-form + Zod | Type-safe validation, minimal re-renders |
 
@@ -185,7 +185,7 @@ Each controller owns exactly one aggregate or cross-cutting concern:
 
 | Controller | Route Prefix | Concern |
 |---|---|---|
-| `AuthController` | `/api/auth` | Registration, login, password management |
+| `AuthController` | `/api/auth` | Profile sync (`GET /api/auth/me`); registration/login is handled by Cognito |
 | `EventsController` | `/api/events` | Event CRUD, lifecycle transitions, announcements, stats |
 | `BookingsController` | `/api/bookings` | Booking creation/cancellation, check-in |
 | `ReviewsController` | `/api/events/{eventId}/reviews` | Reviews, replies, votes, pinning |
@@ -243,20 +243,32 @@ SuperAdmin          → all events including suspended
 
 ## Authentication & Authorization
 
-### JWT Token
+### Auth Architecture
+
+Authentication is delegated to **AWS Cognito**. The backend does not issue or store passwords — it validates Cognito-issued ID tokens on every request.
+
+**Flow:**
+1. User signs in via the frontend (email/password or Google OAuth via Cognito Hosted UI).
+2. Cognito issues an RS256-signed ID token.
+3. Frontend stores the Cognito session in `localStorage` (managed by `aws-amplify`).
+4. Every API request includes `Authorization: Bearer <cognito-id-token>`.
+5. The backend's JWT Bearer middleware validates the token against Cognito's public keys (fetched from `https://cognito-idp.<region>.amazonaws.com/<userPoolId>/.well-known/jwks.json`).
+6. A `CognitoUserResolver` service reads the `sub` claim to look up or auto-provision the local `User` row on first login.
+
+### Cognito ID Token Claims (relevant subset)
 
 ```
-Header:  { "alg": "HS256", "typ": "JWT" }
-Payload: {
-  "sub":  "<userId>",
-  "name": "<name>",
-  "role": "Attendee" | "Admin" | "SuperAdmin",
-  "iat":  <issued-at>,
-  "exp":  <issued-at + 7 days>
+{
+  "sub":            "<cognito-user-id>",
+  "email":          "<user@example.com>",
+  "name":           "<display name>",
+  "cognito:groups": ["Admin"],   // present only for Admin / SuperAdmin users
+  "iat":            <issued-at>,
+  "exp":            <issued-at + 1 hour>   // Cognito default; refresh token extends session
 }
 ```
 
-The token is signed with `Jwt:Key` from `appsettings.json` (minimum 32 characters, HS256). The secret **must** be rotated in production via environment variables.
+The backend maps `cognito:groups` to the application role (`Attendee` / `Admin` / `SuperAdmin`).
 
 ### Role Hierarchy
 
@@ -270,9 +282,9 @@ SuperAdmin  ─── can promote Attendee → Admin
 Attendee   (default on registration)
 ```
 
-### SuperAdmin Registration
+### Role Escalation
 
-A separate endpoint (`POST /api/admin/register`) accepts a `RegistrationKey` from configuration. This allows bootstrapping the first privileged account without exposing role escalation in the normal auth flow.
+SuperAdmin accounts are bootstrapped by promoting a Cognito user to the `SuperAdmin` Cognito group via the AWS Console or CLI. Admins can then promote Attendees to Admin through `PATCH /api/admin/users/{id}/role`.
 
 ---
 

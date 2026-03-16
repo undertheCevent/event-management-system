@@ -36,10 +36,11 @@ A single-page application built with **Vite + React 18 + TypeScript** that consu
 | Charts | Recharts | Organiser dashboard BarChart; Admin PieChart + BarChart |
 | QR codes | qrcode.react | `QRCodeSVG` on check-in tokens |
 | QR scanning | @zxing/browser | `BrowserQRCodeReader` for live camera scanning on `CheckInScannerPage` |
-| Animations | framer-motion | Hero section fade-in |
+| Auth (cloud) | AWS Amplify (aws-amplify) | Cognito session management; lazy-loaded off the critical path |
+| Animations | framer-motion | Page animations on select pages (lazy-loaded with those chunks) |
 | Date utilities | date-fns | Formatting, relative time |
 | Notifications | Sonner | `toast.success` / `toast.error` |
-| Dev tools | React Query Devtools | Mounted only in development |
+| Dev tools | React Query Devtools | Mounted only in development (`import.meta.env.DEV` guard) |
 
 ---
 
@@ -63,7 +64,14 @@ The dev server starts on `http://localhost:5173`. All `/api/*` requests are prox
 ### Build for production
 
 ```bash
-npm run build   # outputs to frontend/dist/
+npm run build      # outputs to frontend/dist/
+npm run preview    # serve the production build locally on :4173
+```
+
+### Lighthouse CI (local)
+
+```bash
+npm run lhci       # build → preview → run @lhci/cli against / and /events
 ```
 
 ### Type-check without building
@@ -84,18 +92,19 @@ frontend/
 ├── components.json         # shadcn/ui configuration
 └── src/
     ├── main.tsx            # ReactDOM.createRoot entry point
-    ├── App.tsx             # QueryClientProvider + RouterProvider + Toaster
-    ├── index.css           # Tailwind directives + shadcn CSS variables
+    ├── App.tsx             # QueryClientProvider + RouterProvider + Toaster + lazy Amplify init
+    ├── index.css           # Tailwind directives + shadcn CSS variables + CSS keyframe animations
     │
     ├── types/
     │   └── index.ts        # All TypeScript interfaces mirroring API DTOs
     │
     ├── lib/
     │   ├── utils.ts        # cn(), formatDate/Time/Currency/Range, STATUS_CONFIG, getInitials
-    │   └── queryClient.ts  # Singleton QueryClient (staleTime 5min, retry 1)
+    │   ├── queryClient.ts  # Singleton QueryClient (staleTime 5min, retry 1)
+    │   └── amplify.ts      # Amplify.configure() — dynamically imported, not in entry bundle
     │
     ├── stores/
-    │   └── authStore.ts    # Zustand store: token, user, login(), logout(), isAdmin()
+    │   └── authStore.ts    # Zustand store: user, isHydrating, setUser(), logout(), isAdmin()
     │
     ├── api/                # One file per backend domain
     │   ├── axios.ts        # Axios instance + interceptors
@@ -132,7 +141,8 @@ frontend/
     │   ├── EventCard.tsx
     │   ├── EventFilters.tsx
     │   ├── Navbar.tsx
-    │   ├── NotificationBell.tsx  # Bell icon + unread badge + dropdown (polls every 30 s)
+    │   ├── NotificationBell.tsx  # Bell icon + unread badge + dropdown (polls every 30 s); lazy-loaded
+    │   ├── PageLoader.tsx        # Minimal CSS spinner used as React.lazy Suspense fallback
     │   ├── StatusBadge.tsx
     │   ├── LoadingSpinner.tsx
     │   └── ConfirmDialog.tsx
@@ -146,18 +156,28 @@ frontend/
     │   └── organizer/
     │       └── AttendeeTable.tsx
     │
-    └── pages/              # One file per route
+    └── pages/              # One file per route — all lazy-loaded via React.lazy()
         ├── HomePage.tsx
         ├── LoginPage.tsx
         ├── RegisterPage.tsx
+        ├── ForgotPasswordPage.tsx
+        ├── ResetPasswordPage.tsx
+        ├── ConfirmEmailPage.tsx
+        ├── OAuthCallbackPage.tsx      # Handles Cognito OAuth redirect; exchanges code → session
         ├── EventDetailPage.tsx        # Waitlist join/leave UI for SoldOut events
         ├── CreateEventPage.tsx
         ├── EditEventPage.tsx
+        ├── EventInsightsPage.tsx      # Per-event analytics (organiser only)
         ├── MyBookingsPage.tsx         # "Add to Calendar" .ics download button
-        ├── OrganizerDashboardPage.tsx # Analytics LineChart panel per event
+        ├── FavoritesPage.tsx
+        ├── StorePage.tsx              # Loyalty points redemption store
+        ├── ProfilePage.tsx
+        ├── OrganizerDashboardPage.tsx # Analytics charts per event
         ├── OrganizerProfilePage.tsx
         ├── CheckInScannerPage.tsx     # Live camera QR scanner + manual token input
         ├── AdminPage.tsx
+        ├── TermsPage.tsx
+        ├── PrivacyPage.tsx
         └── NotFoundPage.tsx
 ```
 
@@ -174,11 +194,21 @@ Routes are defined with `createBrowserRouter` in `src/routes/index.tsx`.
 | `/` | `HomePage` | Public |
 | `/events/:id` | `EventDetailPage` | Public |
 | `/organizers/:id` | `OrganizerProfilePage` | Public |
+| `/terms` | `TermsPage` | Public |
+| `/privacy` | `PrivacyPage` | Public |
 | `/login` | `LoginPage` | Unauthenticated only |
 | `/register` | `RegisterPage` | Unauthenticated only |
+| `/forgot-password` | `ForgotPasswordPage` | Unauthenticated only |
+| `/reset-password` | `ResetPasswordPage` | Unauthenticated only |
+| `/confirm-email` | `ConfirmEmailPage` | Public |
+| `/auth/callback` | `OAuthCallbackPage` | Public — Cognito OAuth redirect target |
+| `/profile` | `ProfilePage` | Authenticated |
+| `/my-bookings` | `MyBookingsPage` | Authenticated |
+| `/favorites` | `FavoritesPage` | Authenticated |
+| `/store` | `StorePage` | Authenticated |
 | `/events/create` | `CreateEventPage` | Authenticated |
 | `/events/:id/edit` | `EditEventPage` | Authenticated (owner or Admin) |
-| `/bookings` | `MyBookingsPage` | Authenticated |
+| `/events/:id/insights` | `EventInsightsPage` | Authenticated (organiser or Admin) |
 | `/dashboard` | `OrganizerDashboardPage` | Authenticated |
 | `/checkin` | `CheckInScannerPage` | Authenticated |
 | `/admin` | `AdminPage` | Admin or SuperAdmin |
@@ -186,11 +216,12 @@ Routes are defined with `createBrowserRouter` in `src/routes/index.tsx`.
 
 ### `ProtectedRoute`
 
-`src/routes/ProtectedRoute.tsx` reads `token` and `user` from the Zustand auth store:
+`src/routes/ProtectedRoute.tsx` reads `user` and `isHydrating` from the Zustand auth store:
 
-1. No token → redirect to `/login` (preserves `from` location for post-login redirect).
-2. Token present + `allowedRoles` specified → checks `user.role`; redirects to `/` on mismatch.
-3. Token present + no role restriction → renders `<Outlet />`.
+1. Amplify session still loading (`isHydrating`) and no cached user → renders `<PageLoader />`.
+2. No user after hydration → redirect to `/login` (preserves `from` location for post-login redirect).
+3. User present + `allowedRoles` specified → checks `user.role`; redirects to `/` on mismatch.
+4. User present + no role restriction → renders `<Outlet />`.
 
 ---
 
@@ -198,21 +229,24 @@ Routes are defined with `createBrowserRouter` in `src/routes/index.tsx`.
 
 ### Auth Store (`src/stores/authStore.ts`)
 
-Zustand store with `persist` middleware backed by `localStorage` under the key `auth-storage`.
+Zustand store with `persist` middleware backed by `localStorage` under the key `event-hub-auth`. Only `user` is persisted — `isHydrating` is always initialised to `true` so the Cognito session is validated on every page load.
 
 ```
 State
-  token    string | null    — raw JWT
-  user     AuthResponse | null  — { userId, name, email, role }
+  user         AppUser | null  — { userId, name, email, role, loyaltyPoints, ... }
+  isHydrating  boolean         — true while Amplify session check is in flight
 
 Actions
-  login(data: AuthResponse)   — sets token + user
-  logout()                    — clears token + user, redirects to /login
-  isAdmin()                   — true if role is Admin or SuperAdmin
-  isSuperAdmin()              — true if role is SuperAdmin
+  setUser(u)     — sets or clears the user profile
+  setHydrated()  — marks the session check complete (isHydrating → false)
+  logout()       — clears user
+  isAdmin()      — true if role is Admin or SuperAdmin
+  isSuperAdmin() — true if role is SuperAdmin
 ```
 
-The store is accessed **outside React** (in the Axios interceptor) via `useAuthStore.getState()`, which is a Zustand feature that avoids prop drilling or React context for the HTTP layer.
+`App.tsx` dynamically imports Amplify, calls `fetchAuthSession()`, and on success calls `fetchAppProfile()` then `setUser()`. `setHydrated()` is always called in `.finally()` so `ProtectedRoute` knows when it's safe to redirect.
+
+The store is accessed **outside React** (in the Axios response interceptor) via `useAuthStore.getState().logout()`, which is a Zustand first-class pattern.
 
 ### Server State (TanStack Query)
 
@@ -273,12 +307,13 @@ Review voting (`src/api/reviews.ts` → `useVoteReview`) uses TanStack Query's o
 baseURL: '/api'   (relative — resolved by Vite dev proxy in dev, web server in prod)
 ```
 
-**Request interceptor** — reads `useAuthStore.getState().token` and attaches it as:
+**Request interceptor** — dynamically imports `fetchAuthSession` from `aws-amplify/auth` and attaches the Cognito ID token:
 ```
-Authorization: Bearer <token>
+Authorization: Bearer <cognito-id-token>
 ```
+Using a dynamic import (rather than a static one) ensures `aws-amplify/auth` stays out of the entry bundle and that `Amplify.configure()` has already run before the first session call.
 
-**Response interceptor** — on `401 Unauthorized`, calls `useAuthStore.getState().logout()` and redirects to `/login`. This handles token expiry silently without any component-level logic.
+**Response interceptor** — on `401 Unauthorized` **only when an `Authorization` header was sent**, calls `useAuthStore.getState().logout()` and redirects to `/login`. Skipping the logout when no token was sent prevents a race condition (Amplify not yet configured → no token attached → 401) from wiping a valid session.
 
 ### Vite Dev Proxy
 
@@ -336,8 +371,9 @@ Three Aceternity UI components are inlined in `src/components/aceternity/` (not 
 ## Styling
 
 - **Tailwind CSS v3** with the `tailwindcss-animate` plugin.
-- **shadcn/ui CSS variables** — HSL tokens defined in `src/index.css` under `:root` and `.dark` selectors. Primary colour: indigo (`238 82% 58%`).
-- Custom Tailwind keyframes in `tailwind.config.js`: `spotlight`, `shimmer`, `border-spin`.
+- **shadcn/ui CSS variables** — HSL tokens defined in `src/index.css` under `:root` and `.dark` selectors. The primary/ring colour is amber (`--ring: 32 95% 44%`); `--muted-foreground` is set to 40% lightness to meet WCAG AA contrast.
+- Custom CSS keyframes in `src/index.css`: `page-in` (route-level fade), `navbar-in` (header entrance). These replace what was previously done with framer-motion in the app shell, keeping the animation library out of the critical-path bundle.
+- Custom Tailwind keyframes in `tailwind.config.js`: `spotlight`, `shimmer`, `border-spin` (Aceternity UI effects).
 - All component styling is utility-class based; no CSS modules or styled-components.
 
 ---
@@ -348,8 +384,15 @@ Three Aceternity UI components are inlined in `src/components/aceternity/` (not 
 |---|---|
 | Relative `/api` base URL | Works with Vite dev proxy in development and a reverse proxy in production without code changes |
 | Axios interceptors for auth | Centralises token injection and 401 handling; no per-request boilerplate |
+| Dynamic import of `aws-amplify/auth` in Axios | Keeps the library out of the entry bundle; guarantees `Amplify.configure()` has run before the first `fetchAuthSession()` call |
+| 401 logout only when `Authorization` was sent | Prevents race-condition 401s (no token attached yet) from wiping a valid Cognito session |
+| Amplify initialised lazily in `App.tsx` useEffect | The entire `aws-amplify` ecosystem is excluded from the critical-path entry bundle; deferred until after first paint |
+| `cancelled` flag in auth `useEffect` | React StrictMode double-invokes effects; the flag prevents two simultaneous `/api/auth/me` calls that would trigger the backend rate limiter (429) |
+| `React.lazy()` for all pages | Each page is a separate chunk; users only download code for routes they actually visit; primary driver of 68% entry bundle size reduction |
+| CSS keyframes instead of framer-motion in app shell | `RootLayout` and `Navbar` transitions use `animate-page-in` / `animate-navbar-in` CSS classes, keeping `framer-motion` out of the entry bundle |
+| `window.location.origin` for Cognito redirect URLs | OAuth callbacks work on any port (`:5173` dev, `:4173` preview, production domain) without hardcoded values |
 | Singleton `QueryClient` | Allows cache invalidation inside mutation `onSuccess` callbacks that run outside component scope |
-| Zustand `getState()` in Axios | Accesses auth token without React context; Zustand supports this as a first-class pattern |
+| Zustand `getState()` in Axios | Accesses auth state without React context; Zustand supports this as a first-class pattern |
 | `isPending` not `isLoading` | TanStack Query v5 renamed `isLoading` → `isPending` for mutations; used consistently |
 | `sonner` for toasts | Simpler API than Radix Toast; no provider required beyond `<Toaster />` in `App.tsx` |
 | Aceternity UI inlined | Avoids an npm package dependency for three small visual components; easier to customise |
