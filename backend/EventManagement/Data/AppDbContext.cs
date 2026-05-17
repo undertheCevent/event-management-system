@@ -170,6 +170,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .HasForeignKey(n => n.EventId)
             .OnDelete(DeleteBehavior.SetNull);
 
+        modelBuilder.Entity<Notification>()
+            .Property(n => n.Type)
+            .HasConversion<string>();
+
         // ── UserPurchases ──────────────────────────────────────────
         modelBuilder.Entity<UserPurchase>()
             .HasIndex(up => new { up.UserId, up.ProductId })

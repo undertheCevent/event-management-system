@@ -412,7 +412,7 @@ public class AdminController(AppDbContext db) : ControllerBase
         db.Notifications.AddRange(allUserIds.Select(uid => new Notification
         {
             UserId  = uid,
-            Type    = "SystemAnnouncement",
+            Type    = NotificationType.SystemAnnouncement,
             Title   = req.Title,
             Message = req.Message,
         }));

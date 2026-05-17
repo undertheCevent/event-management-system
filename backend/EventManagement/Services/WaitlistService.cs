@@ -73,7 +73,7 @@ public class WaitlistService(AppDbContext db) : IWaitlistService
         db.Notifications.Add(new Notification
         {
             UserId  = next.UserId,
-            Type    = "WaitlistPromotion",
+            Type    = NotificationType.WaitlistPromotion,
             Title   = "Spot available — you're in!",
             Message = $"You've been promoted from the waitlist for \"{ev.Title}\". You now have a confirmed booking.",
             EventId = eventId,
