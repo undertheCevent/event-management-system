@@ -302,7 +302,7 @@ public class EventsController(AppDbContext db, ICognitoUserResolver resolver)
             db.Notifications.AddRange(recipients.Select(uid => new Notification
             {
                 UserId  = uid,
-                Type    = "EventUpdate",
+                Type    = NotificationType.EventUpdate,
                 Title   = $"Event updated: {ev.Title}",
                 Message = $"The organiser has updated details for \"{ev.Title}\". Check the event page for the latest information.",
                 EventId = ev.Id,
@@ -347,7 +347,7 @@ public class EventsController(AppDbContext db, ICognitoUserResolver resolver)
         db.Notifications.AddRange(cancelAttendeeIds.Select(uid => new Notification
         {
             UserId  = uid,
-            Type    = "EventCancelled",
+            Type    = NotificationType.EventCancelled,
             Title   = $"Event cancelled: {ev.Title}",
             Message = $"Unfortunately, \"{ev.Title}\" has been cancelled. We're sorry for the inconvenience.",
             EventId = id,
@@ -395,7 +395,7 @@ public class EventsController(AppDbContext db, ICognitoUserResolver resolver)
         db.Notifications.AddRange(postponeAttendeeIds.Select(uid => new Notification
         {
             UserId  = uid,
-            Type    = "EventPostponed",
+            Type    = NotificationType.EventPostponed,
             Title   = $"Event rescheduled: {ev.Title}",
             Message = $"\"{ev.Title}\" has been moved to {req.NewStartDate:MMM d, yyyy}. Your booking remains valid.",
             EventId = id,
@@ -472,7 +472,7 @@ public class EventsController(AppDbContext db, ICognitoUserResolver resolver)
         db.Notifications.AddRange(attendeeIds.Select(uid => new Notification
         {
             UserId  = uid,
-            Type    = "Announcement",
+            Type    = NotificationType.Announcement,
             Title   = $"📢 {req.Title}",
             Message = req.Message,
             EventId = id,

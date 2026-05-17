@@ -71,7 +71,7 @@ public class NotificationBackgroundService(
 
             // Skip users who already received a reminder for this event
             var alreadyNotified = await db.Notifications
-                .Where(n => n.EventId == ev.Id && n.Type == "EventReminder")
+                .Where(n => n.EventId == ev.Id && n.Type == NotificationType.EventReminder)
                 .Select(n => n.UserId)
                 .ToListAsync(ct);
 
@@ -81,7 +81,7 @@ public class NotificationBackgroundService(
             db.Notifications.AddRange(toNotify.Select(uid => new Notification
             {
                 UserId  = uid,
-                Type    = "EventReminder",
+                Type    = NotificationType.EventReminder,
                 Title   = $"Reminder: \"{ev.Title}\" is tomorrow",
                 Message = $"Your event starts on {ev.StartDate:MMM d} at {ev.StartDate:h:mm tt} UTC. See you there!",
                 EventId = ev.Id,
@@ -120,7 +120,7 @@ public class NotificationBackgroundService(
                 .ToListAsync(ct);
 
             var alreadyReminded = await db.Notifications
-                .Where(n => n.EventId == ev.Id && n.Type == "ReviewReminder")
+                .Where(n => n.EventId == ev.Id && n.Type == NotificationType.ReviewReminder)
                 .Select(n => n.UserId)
                 .ToListAsync(ct);
 
@@ -134,7 +134,7 @@ public class NotificationBackgroundService(
             db.Notifications.AddRange(toNotify.Select(uid => new Notification
             {
                 UserId  = uid,
-                Type    = "ReviewReminder",
+                Type    = NotificationType.ReviewReminder,
                 Title   = $"How was \"{ev.Title}\"?",
                 Message = "You attended this event. Share your experience — your review helps others discover great events.",
                 EventId = ev.Id,

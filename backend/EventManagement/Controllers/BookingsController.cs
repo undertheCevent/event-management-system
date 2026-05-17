@@ -127,7 +127,7 @@ public class BookingsController(
         db.Notifications.Add(new Notification
         {
             UserId  = userId,
-            Type    = "BookingConfirmation",
+            Type    = NotificationType.BookingConfirmation,
             Title   = "Booking confirmed!",
             Message = $"You're going to \"{ev.Title}\" on {ev.StartDate:MMM d, yyyy}. You'll earn {pointsEarned} loyalty points once the event concludes.",
             EventId = ev.Id,
